@@ -411,6 +411,10 @@
         <label for="bodyRows">Rows before tip</label>
         <input type="number" id="bodyRows" min="4" max="90" value="34">
       </div>
+      <div class="field">
+        <label for="cuffRows" title="Ribbed cuff knit before the mitten body">Ribbekant rows</label>
+        <input type="number" id="cuffRows" min="0" max="60" value="16">
+      </div>
       <label class="check"><input type="checkbox" id="mirror"> Mirror left &harr; right</label>
     </section>
   </aside>
@@ -520,6 +524,7 @@
   var state = {
     stitches: 27,
     bodyRows: 34,
+    cuffRows: 16, // ribbekant: ribbed cuff below the body, texture only (not paintable)
     mirror: false,
     yarns: DEFAULT_YARNS.slice(),
     activeYarn: 0,
@@ -585,6 +590,7 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         stitches: state.stitches,
         bodyRows: state.bodyRows,
+        cuffRows: state.cuffRows,
         mirror: state.mirror,
         yarns: state.yarns,
         activeYarn: state.activeYarn,
@@ -603,6 +609,7 @@
       var d = JSON.parse(raw);
       if (typeof d.stitches === "number") state.stitches = d.stitches;
       if (typeof d.bodyRows === "number") state.bodyRows = d.bodyRows;
+      if (typeof d.cuffRows === "number") state.cuffRows = d.cuffRows;
       if (typeof d.mirror === "boolean") state.mirror = d.mirror;
       if (Array.isArray(d.yarns) && d.yarns.length) state.yarns = d.yarns;
       if (typeof d.activeYarn === "number" && d.activeYarn < state.yarns.length) state.activeYarn = d.activeYarn;
@@ -635,7 +642,7 @@
     var card = document.querySelector(".chart-card");
     var availH = window.innerHeight - card.offsetTop - 150 - RULER - (n > 1 ? LABEL_H : 0);
     if (availH < 160) availH = 160;
-    var fit = Math.min(availW / (n * W), availH / R);
+    var fit = Math.min(availW / (n * W), availH / (R + state.cuffRows));
     cellPx = Math.max(4, Math.min(44, Math.floor(fit * zoom)));
     document.getElementById("zoomPct").textContent = Math.round(zoom * 100) + "%";
   }
@@ -647,8 +654,9 @@
     var n = sides.length;
     var labelH = n > 1 ? LABEL_H : 0;
     var chartW = W * cellPx;
+    var cuff = state.cuffRows;
     var cssW = n * chartW + (n - 1) * GAP + RULER + 2;
-    var cssH = R * cellPx + RULER + 2 + labelH;
+    var cssH = (R + cuff) * cellPx + RULER + 2 + labelH;
     var dpr = window.devicePixelRatio || 1;
     canvas.width = cssW * dpr;
     canvas.height = cssH * dpr;
@@ -708,6 +716,23 @@
       ctx.lineWidth = 1.5;
       ctx.stroke(shapePath(ox, oy, cellPx));
 
+      // ribbekant: ribbed cuff below the body, drawn as alternating knit/purl columns
+      if (cuff > 0) {
+        var cy = oy + R * cellPx;
+        var cuffH = cuff * cellPx;
+        for (var rc = 0; rc < W; rc++) {
+          ctx.fillStyle = rc % 2 === 0 ? WOOL_WHITE : "rgba(38,34,30,0.10)";
+          ctx.fillRect(ox + rc * cellPx, cy, cellPx, cuffH);
+        }
+        ctx.fillStyle = "rgba(38,34,30,0.25)";
+        for (var rl = 0; rl <= W; rl++) {
+          ctx.fillRect(ox + rl * cellPx - 0.5, cy, 1, cuffH);
+        }
+        ctx.strokeStyle = "#26221E";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(ox, cy, chartW, cuffH);
+      }
+
       // thumb opening marker, palm side only
       if (sideKey === "back" && state.thumb.show) {
         var tr = thumbRect();
@@ -766,7 +791,7 @@
       var ox = 1 + si * (chartW + GAP);
       for (var s = 5; s <= W; s += 5) {
         // stitch 1 is at the right edge, chart convention
-        ctx.fillText(String(s), ox + (W - s) * cellPx + cellPx / 2, oy + R * cellPx + 6);
+        ctx.fillText(String(s), ox + (W - s) * cellPx + cellPx / 2, oy + (R + cuff) * cellPx + 6);
       }
     });
     ctx.textAlign = "left";
@@ -779,7 +804,8 @@
 
     document.getElementById("counts").textContent =
       (state.view === "both" ? "front + back" : (state.side === "front" ? "front" : "back")) + " · " +
-      W + " sts × " + R + " rows (tip " + tipRows() + ")";
+      W + " sts × " + R + " rows (tip " + tipRows() +
+      (cuff > 0 ? ", ribbekant " + cuff : "") + ")";
     updateActionLabels();
     updateHistoryButtons();
   }
@@ -1039,6 +1065,7 @@
 
   var stitchesInput = document.getElementById("stitches");
   var bodyRowsInput = document.getElementById("bodyRows");
+  var cuffRowsInput = document.getElementById("cuffRows");
   var mirrorInput = document.getElementById("mirror");
 
   stitchesInput.addEventListener("change", function () {
@@ -1051,6 +1078,12 @@
     var v = Math.max(4, Math.min(90, Math.round(Number(bodyRowsInput.value) || 34)));
     bodyRowsInput.value = v;
     resizeChart(state.stitches, v);
+  });
+  cuffRowsInput.addEventListener("change", function () {
+    var v = Math.max(0, Math.min(60, Math.round(Number(cuffRowsInput.value) || 0)));
+    cuffRowsInput.value = v;
+    state.cuffRows = v;
+    draw(); save();
   });
   mirrorInput.addEventListener("change", function () {
     state.mirror = mirrorInput.checked;
@@ -1143,12 +1176,12 @@
   // ---- export: PNG (matches the current view: both sides or one) ----
   document.getElementById("download").addEventListener("click", function () {
     var cs = 24, pad = 24, gap = 36;
-    var W = state.stitches, R = totalRows();
+    var W = state.stitches, R = totalRows(), cuff = state.cuffRows;
     var sides = viewSides();
     var labelPad = sides.length > 1 ? 28 : 0;
     var out = document.createElement("canvas");
     out.width = sides.length * W * cs + (sides.length - 1) * gap + pad * 2;
-    out.height = R * cs + pad * 2 + labelPad;
+    out.height = (R + cuff) * cs + pad * 2 + labelPad;
     var octx = out.getContext("2d");
     octx.fillStyle = "#FFFFFF";
     octx.fillRect(0, 0, out.width, out.height);
@@ -1177,6 +1210,24 @@
       octx.strokeStyle = "#26221E";
       octx.lineWidth = 2;
       octx.stroke(shapePath(ox, oy, cs));
+      if (cuff > 0) {
+        var cy = oy + R * cs;
+        for (var rc = 0; rc < W; rc++) {
+          octx.fillStyle = rc % 2 === 0 ? WOOL_WHITE : "rgba(38,34,30,0.10)";
+          octx.fillRect(ox + rc * cs, cy, cs, cuff * cs);
+        }
+        octx.strokeStyle = "rgba(38,34,30,0.35)";
+        octx.lineWidth = 1;
+        for (var rl = 1; rl < W; rl++) {
+          octx.beginPath();
+          octx.moveTo(ox + rl * cs + 0.5, cy);
+          octx.lineTo(ox + rl * cs + 0.5, cy + cuff * cs);
+          octx.stroke();
+        }
+        octx.strokeStyle = "#26221E";
+        octx.lineWidth = 2;
+        octx.strokeRect(ox, cy, W * cs, cuff * cs);
+      }
       if (sideKey === "back" && state.thumb.show) {
         var tr = thumbRect();
         if (tr) {
@@ -1216,12 +1267,12 @@
   function n2(v) { return (Math.round(v * 100) / 100).toString(); }
 
   function pdfPageContent(sideKey, label) {
-    var W = state.stitches, R = totalRows(), T = tipRows(), B = state.bodyRows;
+    var W = state.stitches, R = totalRows(), T = tipRows(), B = state.bodyRows, C = state.cuffRows;
     var pageW = 595.28, pageH = 841.89, margin = 56, titleBlock = 60;
-    var cs = Math.min((pageW - 2 * margin) / W, (pageH - 2 * margin - titleBlock) / R);
+    var cs = Math.min((pageW - 2 * margin) / W, (pageH - 2 * margin - titleBlock) / (R + C));
     var chartW = W * cs;
     var ox = (pageW - chartW) / 2;
-    var oy = margin;
+    var oy = margin + C * cs; // body sits above the ribbekant cuff
     var grid = state.sides[sideKey];
     var ops = [];
 
@@ -1230,7 +1281,8 @@
     ops.push("BT /F1 9 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin - 6) + " Tm 1 Tc (" +
       pdfEscape(label.toUpperCase()) + ") Tj ET");
     ops.push("BT /F1 8 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin - 18) + " Tm 0.5 Tc (" +
-      W + " STS x " + R + " ROWS - TIP " + T + " - READ BOTTOM UP, STITCH 1 AT RIGHT) Tj ET");
+      W + " STS x " + R + " ROWS - TIP " + T + (C > 0 ? " - RIBBEKANT " + C : "") +
+      " - READ BOTTOM UP, STITCH 1 AT RIGHT) Tj ET");
     ops.push("0.149 0.133 0.118 RG 1 w " +
       n2(margin) + " " + n2(pageH - margin - 26) + " m " + n2(pageW - margin) + " " + n2(pageH - margin - 26) + " l S");
 
@@ -1273,6 +1325,21 @@
     }).join(" ");
     ops.push("0.149 0.133 0.118 RG 1.4 w " + path + " h S");
 
+    // ribbekant: ribbed cuff below the body, alternating shaded columns with vertical lines
+    if (C > 0) {
+      for (var rc = 1; rc < W; rc += 2) {
+        ops.push("0.92 0.91 0.89 rg " +
+          n2(ox + rc * cs) + " " + n2(margin) + " " + n2(cs) + " " + n2(C * cs) + " re f");
+      }
+      ops.push("0.66 0.64 0.61 RG 0.4 w");
+      for (var rl = 1; rl < W; rl++) {
+        ops.push(n2(ox + rl * cs) + " " + n2(margin) + " m " +
+          n2(ox + rl * cs) + " " + n2(margin + C * cs) + " l S");
+      }
+      ops.push("0.149 0.133 0.118 RG 1.4 w " +
+        n2(ox) + " " + n2(margin) + " " + n2(chartW) + " " + n2(C * cs) + " re S");
+    }
+
     // thumb opening marker, palm page only
     if (sideKey === "back" && state.thumb.show) {
       var tr = thumbRect();
@@ -1289,7 +1356,7 @@
     ops.push("0.35 0.33 0.30 rg");
     for (var s = 5; s <= W; s += 5) {
       var tx = ox + (W - s) * cs + cs / 2 - 3;
-      ops.push("BT /F1 7 Tf 1 0 0 1 " + n2(tx) + " " + n2(oy - 12) + " Tm (" + s + ") Tj ET");
+      ops.push("BT /F1 7 Tf 1 0 0 1 " + n2(tx) + " " + n2(margin - 12) + " Tm (" + s + ") Tj ET");
     }
     for (var rn = 5; rn <= R; rn += 5) {
       var ty = oy + (rn - 1) * cs + cs / 2 - 2.5;
@@ -1362,6 +1429,7 @@
   load();
   stitchesInput.value = state.stitches;
   bodyRowsInput.value = state.bodyRows;
+  cuffRowsInput.value = state.cuffRows;
   mirrorInput.checked = state.mirror;
   syncThumbInputs();
   renderSwatches();
