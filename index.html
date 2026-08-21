@@ -464,6 +464,9 @@
       <div class="tools">
         <button class="tool selected" id="tool-paint" data-tool="paint">Knit <small>1</small></button>
         <button class="tool" id="tool-erase" data-tool="erase">Erase <small>2</small></button>
+        <button class="tool" id="tool-ls" data-tool="ls" title="Mark a square with \ (with or without yarn) — click the same mark again to remove it">Slash \ <small>3</small></button>
+        <button class="tool" id="tool-rs" data-tool="rs" title="Mark a square with / (with or without yarn) — click the same mark again to remove it">Slash / <small>4</small></button>
+        <button class="tool" id="tool-dot" data-tool="dot" title="Mark a square with a dot (with or without yarn) — click the same mark again to remove it">Dot &middot; <small>5</small></button>
       </div>
     </section>
 
@@ -622,7 +625,9 @@
     // PDF export layout: "side" = both charts on one landscape page, "pages" = one portrait page each
     pdfLayout: "side",
     // each side: cells keyed "rowFromBottom,col" -> hex color (absent = wool white)
-    sides: { front: {}, back: {} }
+    sides: { front: {}, back: {} },
+    // overlay symbols keyed the same way -> "ls" | "rs" | "dot", independent of the yarn underneath
+    marks: { front: {}, back: {} }
   };
 
   var undoStack = [];
@@ -642,6 +647,9 @@
   }
 
   function cells() { return state.sides[state.side]; }
+  function marks() { return state.marks[state.side]; }
+  var MARK_TOOLS = { ls: true, rs: true, dot: true };
+  var MIRROR_MARK = { ls: "rs", rs: "ls", dot: "dot" }; // a slash flips when mirrored
   function tipRows() { return Math.floor((state.stitches - 1) / 2); }
   function totalRows() { return state.bodyRows + tipRows(); }
 
@@ -686,7 +694,8 @@
         knitting: state.knitting,
         thumb: state.thumb,
         pdfLayout: state.pdfLayout,
-        sides: state.sides
+        sides: state.sides,
+        marks: state.marks
       }));
     } catch (e) { /* private browsing: chart just won't persist */ }
   }
@@ -706,6 +715,10 @@
         state.sides.back = d.sides.back || {};
       } else if (d.cells && typeof d.cells === "object") {
         state.sides.front = d.cells; // older save format had a single chart
+      }
+      if (d.marks && typeof d.marks === "object") {
+        state.marks.front = d.marks.front || {};
+        state.marks.back = d.marks.back || {};
       }
       if (d.side === "front" || d.side === "back") state.side = d.side;
       if (d.view === "both" || d.view === "front" || d.view === "back") state.view = d.view;
@@ -810,6 +823,18 @@
       ctx.lineWidth = 1.5;
       ctx.stroke(shapePath(ox, oy, cellPx));
 
+      // symbol marks on top of the grid
+      var markGrid = state.marks[sideKey];
+      for (rTop = 0; rTop < R; rTop++) {
+        var rbm = R - 1 - rTop;
+        for (var mc = 0; mc < W; mc++) {
+          var mk = markGrid[rbm + "," + mc];
+          if (!mk || !inShape(rbm, mc)) continue;
+          drawMark(ctx, mk, ox + mc * cellPx, oy + rTop * cellPx, cellPx,
+            isDark(grid[rbm + "," + mc] || WOOL_WHITE));
+        }
+      }
+
       // ribbekant: ribbed cuff below the body, drawn as alternating knit/purl columns
       if (cuff > 0) {
         var cy = oy + R * cellPx;
@@ -910,6 +935,29 @@
       "Clear " + (state.side === "front" ? "front" : "back") + " chart";
   }
 
+  function isDark(hex) {
+    var r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    return 0.299 * r + 0.587 * g + 0.114 * b < 140;
+  }
+
+  // slash/dot symbol on one square, in whichever ink contrasts with the yarn behind it
+  function drawMark(c2d, mark, x, y, cs, dark) {
+    c2d.fillStyle = c2d.strokeStyle = dark ? WOOL_WHITE : "#26221E";
+    if (mark === "dot") {
+      c2d.beginPath();
+      c2d.arc(x + cs / 2, y + cs / 2, Math.max(1.5, cs * 0.14), 0, Math.PI * 2);
+      c2d.fill();
+      return;
+    }
+    var pad = Math.max(2, cs * 0.24);
+    c2d.lineWidth = Math.max(1.4, cs * 0.1);
+    c2d.lineCap = "round";
+    c2d.beginPath();
+    if (mark === "ls") { c2d.moveTo(x + pad, y + pad); c2d.lineTo(x + cs - pad, y + cs - pad); }
+    else { c2d.moveTo(x + pad, y + cs - pad); c2d.lineTo(x + cs - pad, y + pad); }
+    c2d.stroke();
+  }
+
   function shapePath(ox, oy, cs) {
     var W = state.stitches, R = totalRows(), T = tipRows();
     var p = new Path2D();
@@ -939,15 +987,36 @@
     var prev = grid[key] || null;
     var next = color;
     if (prev === next) return;
-    if (currentStroke) currentStroke.changes.push({ key: key, prev: prev, next: next });
+    if (currentStroke) currentStroke.changes.push({ key: key, layer: "color", prev: prev, next: next });
     if (next === null) delete grid[key];
     else grid[key] = next;
   }
 
+  function setMark(rb, col, mark) {
+    if (!inShape(rb, col)) return;
+    var key = rb + "," + col;
+    var grid = marks();
+    var prev = grid[key] || null;
+    if (prev === mark) return;
+    if (currentStroke) currentStroke.changes.push({ key: key, layer: "mark", prev: prev, next: mark });
+    if (mark === null) delete grid[key];
+    else grid[key] = mark;
+  }
+
   function applyAt(rb, col) {
+    if (MARK_TOOLS[state.tool]) {
+      var m = markErasing ? null : state.tool;
+      setMark(rb, col, m);
+      if (state.mirror) setMark(rb, state.stitches - 1 - col, m && MIRROR_MARK[m]);
+      return;
+    }
     var color = state.tool === "erase" ? null : state.yarns[state.activeYarn];
     setCell(rb, col, color);
-    if (state.mirror) setCell(rb, state.stitches - 1 - col, color);
+    if (state.tool === "erase") setMark(rb, col, null);
+    if (state.mirror) {
+      setCell(rb, state.stitches - 1 - col, color);
+      if (state.tool === "erase") setMark(rb, state.stitches - 1 - col, null);
+    }
   }
 
   function cellFromEvent(ev) {
@@ -966,6 +1035,7 @@
 
   var painting = false;
   var erasingDrag = false;
+  var markErasing = false; // starting a mark stroke on that same mark turns the stroke into removal
   var lastCell = null;
 
   canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
@@ -975,6 +1045,8 @@
     canvas.setPointerCapture(e.pointerId);
     var cell = cellFromEvent(e);
     state.side = cell.side; // in both-sides view, the mitten you touch becomes the active side
+    markErasing = MARK_TOOLS[state.tool] === true &&
+      state.marks[cell.side][cell.rb + "," + cell.col] === state.tool;
     currentStroke = { side: cell.side, changes: [] };
     painting = true;
     erasingDrag = (e.button === 2);
@@ -1003,7 +1075,11 @@
   function paintCell(cell) {
     if (erasingDrag) {
       setCell(cell.rb, cell.col, null);
-      if (state.mirror) setCell(cell.rb, state.stitches - 1 - cell.col, null);
+      setMark(cell.rb, cell.col, null);
+      if (state.mirror) {
+        setCell(cell.rb, state.stitches - 1 - cell.col, null);
+        setMark(cell.rb, state.stitches - 1 - cell.col, null);
+      }
     } else {
       applyAt(cell.rb, cell.col);
     }
@@ -1023,6 +1099,7 @@
     if (!painting && !currentStroke) return;
     painting = false;
     erasingDrag = false;
+    markErasing = false;
     lastCell = null;
     endStroke();
     save();
@@ -1042,9 +1119,9 @@
     var stroke = undoStack.pop();
     if (!stroke) return;
     showSideOf(stroke);
-    var grid = state.sides[stroke.side];
     for (var i = stroke.changes.length - 1; i >= 0; i--) {
       var ch = stroke.changes[i];
+      var grid = ch.layer === "mark" ? state.marks[stroke.side] : state.sides[stroke.side];
       if (ch.prev === null) delete grid[ch.key];
       else grid[ch.key] = ch.prev;
     }
@@ -1056,9 +1133,9 @@
     var stroke = redoStack.pop();
     if (!stroke) return;
     showSideOf(stroke);
-    var grid = state.sides[stroke.side];
     for (var i = 0; i < stroke.changes.length; i++) {
       var ch = stroke.changes[i];
+      var grid = ch.layer === "mark" ? state.marks[stroke.side] : state.sides[stroke.side];
       if (ch.next === null) delete grid[ch.key];
       else grid[ch.key] = ch.next;
     }
@@ -1073,6 +1150,9 @@
     if (e.target.tagName === "INPUT") return;
     if (e.key === "1") selectTool("paint");
     if (e.key === "2") selectTool("erase");
+    if (e.key === "3") selectTool("ls");
+    if (e.key === "4") selectTool("rs");
+    if (e.key === "5") selectTool("dot");
     if (k === "f") {
       if (state.view === "both") setView("front");
       else setView(state.view === "front" ? "back" : "both");
@@ -1149,6 +1229,7 @@
         rowCtx.fillText(sideKey === "front" ? "FRONT" : "PALM", ox, 10);
       }
       var grid = state.sides[sideKey];
+      var mgrid = state.marks[sideKey];
 
       // faded band below: the row just completed
       if (hasPrev) {
@@ -1163,6 +1244,11 @@
           rowCtx.fillRect(ox + (pins - minIns + pb) * cs - 0.5, py, 1, cs);
         }
         rowCtx.fillRect(ox + (pins - minIns) * cs, py + cs - 0.5, (W - 2 * pins) * cs, 1);
+        for (pc = pins; pc < W - pins; pc++) {
+          var pmk = mgrid[(rb - 1) + "," + pc];
+          if (pmk) drawMark(rowCtx, pmk, ox + (pc - minIns) * cs, py, cs,
+            isDark(grid[(rb - 1) + "," + pc] || WOOL_WHITE));
+        }
         rowCtx.globalAlpha = 1;
       }
 
@@ -1170,6 +1256,11 @@
       for (var c = inset; c < W - inset; c++) {
         rowCtx.fillStyle = grid[rb + "," + c] || WOOL_WHITE;
         rowCtx.fillRect(ox + (c - minIns) * cs, oy, cs, cs);
+      }
+      for (c = inset; c < W - inset; c++) {
+        var cmk = mgrid[rb + "," + c];
+        if (cmk) drawMark(rowCtx, cmk, ox + (c - minIns) * cs, oy, cs,
+          isDark(grid[rb + "," + c] || WOOL_WHITE));
       }
       // vertical lines, heavier every 5 stitches counted from the right (chart convention)
       for (var b = 0; b <= rowW; b++) {
@@ -1248,7 +1339,7 @@
       b.setAttribute("aria-label", "Yarn " + color);
       b.addEventListener("click", function () {
         state.activeYarn = i;
-        if (state.tool === "erase") selectTool("paint");
+        if (state.tool !== "paint") selectTool("paint");
         renderSwatches(); save();
       });
       box.appendChild(b);
@@ -1365,23 +1456,29 @@
   // Re-center columns when the width changes; rows stay anchored at the cast-on edge.
   function resizeChart(newStitches, newBodyRows) {
     var shift = Math.floor((newStitches - state.stitches) / 2);
-    var movedSides = {};
-    Object.keys(state.sides).forEach(function (side) {
-      var moved = {};
-      Object.keys(state.sides[side]).forEach(function (key) {
-        var parts = key.split(",");
-        var rb = Number(parts[0]), col = Number(parts[1]) + shift;
-        moved[rb + "," + col] = state.sides[side][key];
+    function shiftGrids(grids) {
+      var out = {};
+      Object.keys(grids).forEach(function (side) {
+        var moved = {};
+        Object.keys(grids[side]).forEach(function (key) {
+          var parts = key.split(",");
+          moved[Number(parts[0]) + "," + (Number(parts[1]) + shift)] = grids[side][key];
+        });
+        out[side] = moved;
       });
-      movedSides[side] = moved;
-    });
+      return out;
+    }
+    var movedSides = shiftGrids(state.sides);
+    var movedMarks = shiftGrids(state.marks);
     state.stitches = newStitches;
     state.bodyRows = newBodyRows;
-    Object.keys(movedSides).forEach(function (side) {
-      state.sides[side] = {};
-      Object.keys(movedSides[side]).forEach(function (key) {
-        var parts = key.split(",");
-        if (inShape(Number(parts[0]), Number(parts[1]))) state.sides[side][key] = movedSides[side][key];
+    [[state.sides, movedSides], [state.marks, movedMarks]].forEach(function (pair) {
+      Object.keys(pair[1]).forEach(function (side) {
+        pair[0][side] = {};
+        Object.keys(pair[1][side]).forEach(function (key) {
+          var parts = key.split(",");
+          if (inShape(Number(parts[0]), Number(parts[1]))) pair[0][side][key] = pair[1][side][key];
+        });
       });
     });
     undoStack = [];
@@ -1399,6 +1496,7 @@
     if (!Object.keys(cells()).length) return;
     if (!window.confirm("Clear the " + SIDE_LABELS[state.side].toLowerCase() + " chart? This can't be undone.")) return;
     state.sides[state.side] = {};
+    state.marks[state.side] = {};
     undoStack = undoStack.filter(function (s) { return s.side !== state.side; });
     redoStack = redoStack.filter(function (s) { return s.side !== state.side; });
     draw(); save();
@@ -1436,6 +1534,15 @@
           octx.strokeStyle = "rgba(38,34,30,0.25)";
           octx.lineWidth = 1;
           octx.strokeRect(ox + c * cs + 0.5, oy + rTop * cs + 0.5, cs - 1, cs - 1);
+        }
+      }
+      var markGrid = state.marks[sideKey];
+      for (var mr = 0; mr < R; mr++) {
+        var mrb = R - 1 - mr;
+        for (var mc = 0; mc < W; mc++) {
+          var mk = markGrid[mrb + "," + mc];
+          if (!mk || !inShape(mrb, mc)) continue;
+          drawMark(octx, mk, ox + mc * cs, oy + mr * cs, cs, isDark(grid[mrb + "," + mc] || WOOL_WHITE));
         }
       }
       octx.strokeStyle = "#26221E";
@@ -1497,6 +1604,16 @@
   }
   function n2(v) { return (Math.round(v * 100) / 100).toString(); }
 
+  // filled circle from four Béziers (PDF has no circle primitive)
+  function pdfCircle(cx, cy, r) {
+    var k = 0.5523 * r;
+    return n2(cx + r) + " " + n2(cy) + " m " +
+      n2(cx + r) + " " + n2(cy + k) + " " + n2(cx + k) + " " + n2(cy + r) + " " + n2(cx) + " " + n2(cy + r) + " c " +
+      n2(cx - k) + " " + n2(cy + r) + " " + n2(cx - r) + " " + n2(cy + k) + " " + n2(cx - r) + " " + n2(cy) + " c " +
+      n2(cx - r) + " " + n2(cy - k) + " " + n2(cx - k) + " " + n2(cy - r) + " " + n2(cx) + " " + n2(cy - r) + " c " +
+      n2(cx + k) + " " + n2(cy - r) + " " + n2(cx + r) + " " + n2(cy - k) + " " + n2(cx + r) + " " + n2(cy) + " c f";
+  }
+
   function pdfTitleOps(pageW, pageH, margin, subtitle) {
     var W = state.stitches, R = totalRows(), T = tipRows(), C = state.cuffRows;
     var ops = [];
@@ -1557,6 +1674,28 @@
       return n2(ox + p[0] * cs) + " " + n2(oy + p[1] * cs) + " " + (i === 0 ? "m" : "l");
     }).join(" ");
     ops.push("0.149 0.133 0.118 RG 1.4 w " + path + " h S");
+
+    // symbol marks: slashes and dots on their squares, ink contrasting with the yarn behind
+    var mgrid = state.marks[sideKey];
+    Object.keys(mgrid).forEach(function (key) {
+      var parts = key.split(",");
+      var mrb = Number(parts[0]), mc = Number(parts[1]);
+      if (!inShape(mrb, mc)) return;
+      var mk = mgrid[key];
+      var ink = isDark(grid[key] || WOOL_WHITE) ? "0.965 0.949 0.913" : "0.149 0.133 0.118";
+      var mx = ox + mc * cs, my = oy + mrb * cs;
+      var pad = cs * 0.24;
+      if (mk === "dot") {
+        ops.push(ink + " rg " + pdfCircle(mx + cs / 2, my + cs / 2, cs * 0.14));
+      } else if (mk === "ls") {
+        // "\" runs visual top-left to bottom-right; the page y-axis points up
+        ops.push(ink + " RG " + n2(Math.max(0.8, cs * 0.1)) + " w 1 J " +
+          n2(mx + pad) + " " + n2(my + cs - pad) + " m " + n2(mx + cs - pad) + " " + n2(my + pad) + " l S");
+      } else {
+        ops.push(ink + " RG " + n2(Math.max(0.8, cs * 0.1)) + " w 1 J " +
+          n2(mx + pad) + " " + n2(my + pad) + " m " + n2(mx + cs - pad) + " " + n2(my + cs - pad) + " l S");
+      }
+    });
 
     // ribbekant: ribbed cuff below the body, alternating shaded columns with vertical lines
     if (C > 0) {
