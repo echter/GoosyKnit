@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Selbuvott — mitten chart maker</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23EEEAE0'/><path d='M8 1 L13 6 V15 H3 V6 Z' fill='%2326221E'/></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #EEEAE0;
+    --card: #F9F6EF;
+    --ink: #26221E;
+    --ink-soft: rgba(38, 34, 30, 0.55);
+    --hairline: rgba(38, 34, 30, 0.16);
+    --red: #9E3229;
+    --wool-white: #F6F2E9;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "Jost", sans-serif;
+    color: var(--ink);
+    background-color: var(--paper);
+    background-image:
+      linear-gradient(var(--hairline) 1px, transparent 1px),
+      linear-gradient(90deg, var(--hairline) 1px, transparent 1px);
+    background-size: 28px 28px;
+    min-height: 100vh;
+  }
+
+  header {
+    text-align: center;
+    padding: 2.2rem 1rem 1.4rem;
+  }
+  header h1 {
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    text-indent: 0.28em; /* balances the letterspacing on the last glyph */
+  }
+  header .rule {
+    width: min(360px, 70%);
+    margin: 0.7rem auto;
+    border: 0;
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    height: 4px;
+  }
+  header p {
+    font-size: 0.95rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+
+  .workshop {
+    display: flex;
+    gap: 1.5rem;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 0 1rem 3rem;
+    flex-wrap: wrap;
+  }
+
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--ink);
+    box-shadow: 4px 4px 0 rgba(38, 34, 30, 0.18);
+    padding: 1.2rem 1.3rem;
+    width: 250px;
+    flex-shrink: 0;
+  }
+  .panel section + section {
+    margin-top: 1.2rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--hairline);
+  }
+  .panel h2 {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    margin-bottom: 0.7rem;
+  }
+
+  .swatches { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .swatch {
+    width: 34px; height: 34px;
+    border: 1px solid var(--ink);
+    cursor: pointer;
+    position: relative;
+    padding: 0;
+  }
+  .swatch.selected { outline: 2px solid var(--red); outline-offset: 2px; }
+  .swatch-add {
+    width: 34px; height: 34px;
+    border: 1px dashed var(--ink-soft);
+    background: transparent;
+    color: var(--ink-soft);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .swatch-add:hover { border-color: var(--ink); color: var(--ink); }
+
+  .tools { display: flex; flex-direction: column; gap: 0.4rem; }
+  .tool, .action {
+    font-family: "Jost", sans-serif;
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-align: left;
+    padding: 0.45rem 0.7rem;
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .tool:hover, .action:hover { border-color: var(--ink); }
+  .tool.selected {
+    background: var(--ink);
+    color: var(--card);
+    border-color: var(--ink);
+  }
+  .tool small { color: inherit; opacity: 0.6; float: right; font-family: "IBM Plex Mono", monospace; }
+
+  .field { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.55rem; }
+  .field label { font-size: 0.9rem; }
+  .field input[type="number"] {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 0.9rem;
+    width: 64px;
+    padding: 0.3rem 0.4rem;
+    border: 1px solid var(--hairline);
+    background: var(--card);
+    color: var(--ink);
+    text-align: right;
+  }
+  .field input[type="number"]:focus { border-color: var(--ink); outline: none; }
+  .check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; }
+  .check input { accent-color: var(--red); width: 16px; height: 16px; }
+
+  .actions { display: flex; flex-direction: column; gap: 0.4rem; }
+  .action.danger:hover { border-color: var(--red); color: var(--red); }
+
+  .chart-card {
+    background: var(--card);
+    border: 1px solid var(--ink);
+    box-shadow: 4px 4px 0 rgba(38, 34, 30, 0.18);
+    padding: 1.1rem 1.1rem 0.8rem;
+    max-width: 100%;
+  }
+  .chart-card .chart-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    border-bottom: 1px solid var(--ink);
+    padding-bottom: 0.5rem;
+    margin-bottom: 0.9rem;
+  }
+  .chart-card .chart-title span {
+    font-size: 0.72rem;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  #counts { font-family: "IBM Plex Mono", monospace; font-size: 0.78rem; color: var(--ink); }
+
+  #chart {
+    display: block;
+    touch-action: none;
+    cursor: crosshair;
+    max-width: 100%;
+  }
+  .chart-hint {
+    font-size: 0.78rem;
+    color: var(--ink-soft);
+    text-align: center;
+    padding: 0.6rem 0 0.2rem;
+    letter-spacing: 0.04em;
+  }
+
+  footer {
+    text-align: center;
+    padding: 0 1rem 2rem;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    color: var(--ink-soft);
+  }
+
+  button:focus-visible, input:focus-visible, label:focus-visible {
+    outline: 2px solid var(--red);
+    outline-offset: 2px;
+  }
+
+  @media (max-width: 720px) {
+    .workshop { flex-direction: column; align-items: stretch; }
+    .panel { width: 100%; }
+    .swatch, .swatch-add { width: 40px; height: 40px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Selbuvott</h1>
+  <hr class="rule">
+  <p>Mitten chart maker &middot; strikkemønster</p>
+</header>
+
+<div class="workshop">
+  <aside class="panel">
+    <section>
+      <h2>Yarn</h2>
+      <div class="swatches" id="swatches"></div>
+      <input type="color" id="customColor" value="#9E3229" hidden>
+    </section>
+
+    <section>
+      <h2>Tool</h2>
+      <div class="tools">
+        <button class="tool selected" id="tool-paint" data-tool="paint">Knit <small>1</small></button>
+        <button class="tool" id="tool-erase" data-tool="erase">Erase <small>2</small></button>
+        <button class="tool" id="tool-rose" data-tool="rose">Selburose stamp <small>3</small></button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Chart</h2>
+      <div class="field">
+        <label for="stitches">Stitches wide</label>
+        <input type="number" id="stitches" min="9" max="61" step="2" value="27">
+      </div>
+      <div class="field">
+        <label for="bodyRows">Rows before tip</label>
+        <input type="number" id="bodyRows" min="4" max="90" value="34">
+      </div>
+      <label class="check"><input type="checkbox" id="mirror" checked> Mirror left &harr; right</label>
+    </section>
+
+    <section>
+      <h2>Actions</h2>
+      <div class="actions">
+        <button class="action" id="undo">Undo <small style="float:right;font-family:'IBM Plex Mono',monospace;opacity:.6">Ctrl+Z</small></button>
+        <button class="action" id="download">Download PNG</button>
+        <button class="action danger" id="clear">Clear chart</button>
+      </div>
+    </section>
+  </aside>
+
+  <main class="chart-card">
+    <div class="chart-title">
+      <span>Mønster &mdash; back of hand</span>
+      <span id="counts"></span>
+    </div>
+    <canvas id="chart"></canvas>
+    <p class="chart-hint">Click or drag to knit. Right-click drags erase. Your chart saves itself in this browser.</p>
+  </main>
+</div>
+
+<footer>Charted in the tradition of Selbu, Norway &mdash; read from the bottom up.</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var STORAGE_KEY = "selbuvott-chart-v1";
+  var WOOL_WHITE = "#F6F2E9";
+  var DEFAULT_YARNS = ["#26221E", "#9E3229", "#2E4A62"];
+
+  // 8-petal selburose, 15x15
+  var ROSE = [
+    ".......#.......",
+    "......###......",
+    "...#.#####.#...",
+    "..###.###.###..",
+    "...#...#...#...",
+    "..#....#....#..",
+    ".###..###..###.",
+    "###############",
+    ".###..###..###.",
+    "..#....#....#..",
+    "...#...#...#...",
+    "..###.###.###..",
+    "...#.#####.#...",
+    "......###......",
+    ".......#......."
+  ];
+
+  var state = {
+    stitches: 27,
+    bodyRows: 34,
+    mirror: true,
+    yarns: DEFAULT_YARNS.slice(),
+    activeYarn: 0,
+    tool: "paint",
+    // cells keyed "rowFromBottom,col" -> hex color (absent = wool white)
+    cells: {}
+  };
+
+  var undoStack = [];
+  var currentStroke = null;
+
+  var canvas = document.getElementById("chart");
+  var ctx = canvas.getContext("2d");
+  var cellPx = 18;
+  var RULER = 26; // px reserved for stitch/row numbers
+
+  function tipRows() { return Math.floor((state.stitches - 1) / 2); }
+  function totalRows() { return state.bodyRows + tipRows(); }
+
+  // A row (counted from the bottom) narrows by one stitch each side inside the tip.
+  function insetFor(rowFromBottom) {
+    var intoTip = rowFromBottom - state.bodyRows + 1;
+    return intoTip > 0 ? intoTip : 0;
+  }
+  function inShape(rowFromBottom, col) {
+    if (rowFromBottom < 0 || rowFromBottom >= totalRows()) return false;
+    var inset = insetFor(rowFromBottom);
+    return col >= inset && col < state.stitches - inset;
+  }
+
+  // ---- persistence ----
+  function save() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        stitches: state.stitches,
+        bodyRows: state.bodyRows,
+        mirror: state.mirror,
+        yarns: state.yarns,
+        activeYarn: state.activeYarn,
+        cells: state.cells
+      }));
+    } catch (e) { /* private browsing: chart just won't persist */ }
+  }
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      var d = JSON.parse(raw);
+      if (typeof d.stitches === "number") state.stitches = d.stitches;
+      if (typeof d.bodyRows === "number") state.bodyRows = d.bodyRows;
+      if (typeof d.mirror === "boolean") state.mirror = d.mirror;
+      if (Array.isArray(d.yarns) && d.yarns.length) state.yarns = d.yarns;
+      if (typeof d.activeYarn === "number" && d.activeYarn < state.yarns.length) state.activeYarn = d.activeYarn;
+      if (d.cells && typeof d.cells === "object") state.cells = d.cells;
+    } catch (e) { /* corrupt save: start fresh */ }
+  }
+
+  // ---- drawing ----
+  function fitCellSize() {
+    var avail = Math.min(document.body.clientWidth - 40, 760) - RULER - 20;
+    cellPx = Math.max(9, Math.min(19, Math.floor(avail / state.stitches)));
+  }
+
+  function draw() {
+    fitCellSize();
+    var W = state.stitches, R = totalRows();
+    var cssW = W * cellPx + RULER + 2;
+    var cssH = R * cellPx + RULER + 2;
+    var dpr = window.devicePixelRatio || 1;
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+    canvas.style.width = cssW + "px";
+    canvas.style.height = cssH + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    var ox = 1, oy = 1;
+
+    for (var rTop = 0; rTop < R; rTop++) {
+      var rb = R - 1 - rTop; // row counted from the bottom
+      for (var c = 0; c < W; c++) {
+        if (!inShape(rb, c)) continue;
+        var color = state.cells[rb + "," + c] || WOOL_WHITE;
+        ctx.fillStyle = color;
+        ctx.fillRect(ox + c * cellPx, oy + rTop * cellPx, cellPx, cellPx);
+      }
+    }
+
+    // grid lines clipped to the mitten shape; every 5th line heavier, chart-style
+    for (rTop = 0; rTop < R; rTop++) {
+      var rb2 = R - 1 - rTop;
+      var inset = insetFor(rb2);
+      var x0 = ox + inset * cellPx;
+      var x1 = ox + (W - inset) * cellPx;
+      var y0 = oy + rTop * cellPx;
+      for (var cc = inset; cc <= W - inset; cc++) {
+        var heavy = (cc === inset || cc === W - inset || (cc % 5 === 0 && cc > inset && cc < W - inset));
+        ctx.fillStyle = heavy ? "rgba(38,34,30,0.55)" : "rgba(38,34,30,0.18)";
+        ctx.fillRect(ox + cc * cellPx - 0.5, y0, 1, cellPx);
+      }
+      var rowHeavy = (rb2 % 5 === 0) || rb2 === 0;
+      ctx.fillStyle = rowHeavy ? "rgba(38,34,30,0.55)" : "rgba(38,34,30,0.18)";
+      ctx.fillRect(x0, y0 - 0.5, x1 - x0, 1);
+      if (rTop === R - 1) {
+        ctx.fillStyle = "rgba(38,34,30,0.55)";
+        ctx.fillRect(x0, y0 + cellPx - 0.5, x1 - x0, 1);
+      }
+    }
+
+    // outline of the whole mitten
+    ctx.strokeStyle = "#26221E";
+    ctx.lineWidth = 1.5;
+    ctx.stroke(shapePath(ox, oy, cellPx));
+
+    // rulers: stitch numbers along the bottom, row numbers up the right side
+    ctx.fillStyle = "rgba(38,34,30,0.7)";
+    ctx.font = "500 " + Math.max(8, Math.min(11, cellPx - 6)) + "px 'IBM Plex Mono', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    for (var s = 5; s <= W; s += 5) {
+      // stitch 1 is at the right edge, chart convention
+      ctx.fillText(String(s), ox + (W - s) * cellPx + cellPx / 2, oy + R * cellPx + 6);
+    }
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    for (var rn = 5; rn <= R; rn += 5) {
+      var yy = oy + (R - rn) * cellPx + cellPx / 2;
+      ctx.fillText(String(rn), ox + W * cellPx + 6, yy);
+    }
+
+    document.getElementById("counts").textContent =
+      W + " sts × " + R + " rows (tip " + tipRows() + ")";
+  }
+
+  function shapePath(ox, oy, cs) {
+    var W = state.stitches, R = totalRows(), T = tipRows();
+    var p = new Path2D();
+    // start bottom-left, go up the left side, staircase over the tip, down the right
+    p.moveTo(ox, oy + R * cs);
+    p.lineTo(ox, oy + T * cs);
+    for (var i = 0; i < T; i++) {
+      p.lineTo(ox + i * cs, oy + (T - i) * cs);
+      p.lineTo(ox + (i + 1) * cs, oy + (T - i) * cs);
+    }
+    p.lineTo(ox + T * cs, oy);
+    p.lineTo(ox + (W - T) * cs, oy);
+    for (var j = T; j > 0; j--) {
+      p.lineTo(ox + (W - j) * cs, oy + (T - j + 1) * cs);
+      p.lineTo(ox + (W - j + 1) * cs, oy + (T - j + 1) * cs);
+    }
+    p.lineTo(ox + W * cs, oy + R * cs);
+    p.closePath();
+    return p;
+  }
+
+  // ---- editing ----
+  function setCell(rb, col, color) {
+    if (!inShape(rb, col)) return;
+    var key = rb + "," + col;
+    var prev = state.cells[key] || null;
+    var next = color;
+    if (prev === next) return;
+    if (currentStroke) currentStroke.push({ key: key, prev: prev });
+    if (next === null) delete state.cells[key];
+    else state.cells[key] = next;
+  }
+
+  function applyAt(rb, col) {
+    var color = state.tool === "erase" ? null : state.yarns[state.activeYarn];
+    if (state.tool === "rose") return; // rose stamps on click only
+    setCell(rb, col, color);
+    if (state.mirror) setCell(rb, state.stitches - 1 - col, color);
+  }
+
+  function stampRose(rb, col) {
+    var color = state.yarns[state.activeYarn];
+    var half = Math.floor(ROSE.length / 2);
+    for (var r = 0; r < ROSE.length; r++) {
+      for (var c = 0; c < ROSE[r].length; c++) {
+        if (ROSE[r][c] !== "#") continue;
+        setCell(rb + (half - r), col + (c - half), color);
+      }
+    }
+    if (state.mirror) {
+      var mc = state.stitches - 1 - col;
+      if (mc !== col) {
+        for (r = 0; r < ROSE.length; r++) {
+          for (c = 0; c < ROSE[r].length; c++) {
+            if (ROSE[r][c] !== "#") continue;
+            setCell(rb + (half - r), mc + (c - half), color);
+          }
+        }
+      }
+    }
+  }
+
+  function cellFromEvent(ev) {
+    var rect = canvas.getBoundingClientRect();
+    var scale = rect.width > 0 ? (parseFloat(canvas.style.width) / rect.width) : 1;
+    var x = (ev.clientX - rect.left) * scale - 1;
+    var y = (ev.clientY - rect.top) * scale - 1;
+    var col = Math.floor(x / cellPx);
+    var rTop = Math.floor(y / cellPx);
+    return { rb: totalRows() - 1 - rTop, col: col };
+  }
+
+  var painting = false;
+  var erasingDrag = false;
+  var lastCell = null;
+
+  canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+  canvas.addEventListener("pointerdown", function (e) {
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
+    currentStroke = [];
+    var cell = cellFromEvent(e);
+    if (state.tool === "rose" && e.button !== 2) {
+      stampRose(cell.rb, cell.col);
+      endStroke();
+      draw(); save();
+      return;
+    }
+    painting = true;
+    erasingDrag = (e.button === 2);
+    lastCell = cell;
+    paintCell(cell);
+    draw();
+  });
+
+  canvas.addEventListener("pointermove", function (e) {
+    if (!painting) return;
+    var cell = cellFromEvent(e);
+    if (lastCell && cell.rb === lastCell.rb && cell.col === lastCell.col) return;
+    // interpolate so fast drags leave no gaps
+    var steps = Math.max(Math.abs(cell.rb - lastCell.rb), Math.abs(cell.col - lastCell.col));
+    for (var i = 1; i <= steps; i++) {
+      paintCell({
+        rb: Math.round(lastCell.rb + (cell.rb - lastCell.rb) * i / steps),
+        col: Math.round(lastCell.col + (cell.col - lastCell.col) * i / steps)
+      });
+    }
+    lastCell = cell;
+    draw();
+  });
+
+  function paintCell(cell) {
+    if (erasingDrag) {
+      setCell(cell.rb, cell.col, null);
+      if (state.mirror) setCell(cell.rb, state.stitches - 1 - cell.col, null);
+    } else {
+      applyAt(cell.rb, cell.col);
+    }
+  }
+
+  function endStroke() {
+    if (currentStroke && currentStroke.length) {
+      undoStack.push(currentStroke);
+      if (undoStack.length > 200) undoStack.shift();
+    }
+    currentStroke = null;
+  }
+
+  window.addEventListener("pointerup", function () {
+    if (!painting && !currentStroke) return;
+    painting = false;
+    erasingDrag = false;
+    lastCell = null;
+    endStroke();
+    save();
+  });
+
+  function undo() {
+    var stroke = undoStack.pop();
+    if (!stroke) return;
+    for (var i = stroke.length - 1; i >= 0; i--) {
+      var ch = stroke[i];
+      if (ch.prev === null) delete state.cells[ch.key];
+      else state.cells[ch.key] = ch.prev;
+    }
+    draw(); save();
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); undo(); return; }
+    if (e.target.tagName === "INPUT") return;
+    if (e.key === "1") selectTool("paint");
+    if (e.key === "2") selectTool("erase");
+    if (e.key === "3") selectTool("rose");
+  });
+
+  // ---- controls ----
+  function renderSwatches() {
+    var box = document.getElementById("swatches");
+    box.innerHTML = "";
+    state.yarns.forEach(function (color, i) {
+      var b = document.createElement("button");
+      b.className = "swatch" + (i === state.activeYarn ? " selected" : "");
+      b.style.background = color;
+      b.title = color;
+      b.setAttribute("aria-label", "Yarn " + color);
+      b.addEventListener("click", function () {
+        state.activeYarn = i;
+        if (state.tool === "erase") selectTool("paint");
+        renderSwatches(); save();
+      });
+      box.appendChild(b);
+    });
+    var add = document.createElement("button");
+    add.className = "swatch-add";
+    add.textContent = "+";
+    add.title = "Add a yarn color";
+    add.setAttribute("aria-label", "Add a yarn color");
+    add.addEventListener("click", function () {
+      var picker = document.getElementById("customColor");
+      picker.onchange = function () {
+        state.yarns.push(picker.value);
+        state.activeYarn = state.yarns.length - 1;
+        renderSwatches(); save();
+      };
+      picker.click();
+    });
+    box.appendChild(add);
+  }
+
+  function selectTool(tool) {
+    state.tool = tool;
+    document.querySelectorAll(".tool").forEach(function (b) {
+      b.classList.toggle("selected", b.dataset.tool === tool);
+    });
+  }
+  document.querySelectorAll(".tool").forEach(function (b) {
+    b.addEventListener("click", function () { selectTool(b.dataset.tool); });
+  });
+
+  var stitchesInput = document.getElementById("stitches");
+  var bodyRowsInput = document.getElementById("bodyRows");
+  var mirrorInput = document.getElementById("mirror");
+
+  stitchesInput.addEventListener("change", function () {
+    var v = Math.max(9, Math.min(61, Math.round(Number(stitchesInput.value) || 27)));
+    if (v % 2 === 0) v += 1; // odd width keeps a center stitch for the rose
+    stitchesInput.value = v;
+    resizeChart(v, state.bodyRows);
+  });
+  bodyRowsInput.addEventListener("change", function () {
+    var v = Math.max(4, Math.min(90, Math.round(Number(bodyRowsInput.value) || 34)));
+    bodyRowsInput.value = v;
+    resizeChart(state.stitches, v);
+  });
+  mirrorInput.addEventListener("change", function () {
+    state.mirror = mirrorInput.checked;
+    save();
+  });
+
+  // Re-center columns when the width changes; rows stay anchored at the cast-on edge.
+  function resizeChart(newStitches, newBodyRows) {
+    var shift = Math.floor((newStitches - state.stitches) / 2);
+    var moved = {};
+    Object.keys(state.cells).forEach(function (key) {
+      var parts = key.split(",");
+      var rb = Number(parts[0]), col = Number(parts[1]) + shift;
+      moved[rb + "," + col] = state.cells[key];
+    });
+    state.stitches = newStitches;
+    state.bodyRows = newBodyRows;
+    state.cells = {};
+    Object.keys(moved).forEach(function (key) {
+      var parts = key.split(",");
+      if (inShape(Number(parts[0]), Number(parts[1]))) state.cells[key] = moved[key];
+    });
+    undoStack = [];
+    draw(); save();
+  }
+
+  document.getElementById("undo").addEventListener("click", undo);
+
+  document.getElementById("clear").addEventListener("click", function () {
+    if (!Object.keys(state.cells).length) return;
+    if (!window.confirm("Clear the whole chart? This can't be undone.")) return;
+    state.cells = {};
+    undoStack = [];
+    draw(); save();
+  });
+
+  document.getElementById("download").addEventListener("click", function () {
+    var cs = 24, pad = 24;
+    var W = state.stitches, R = totalRows();
+    var out = document.createElement("canvas");
+    out.width = W * cs + pad * 2;
+    out.height = R * cs + pad * 2;
+    var octx = out.getContext("2d");
+    octx.fillStyle = "#FFFFFF";
+    octx.fillRect(0, 0, out.width, out.height);
+    for (var rTop = 0; rTop < R; rTop++) {
+      var rb = R - 1 - rTop;
+      for (var c = 0; c < W; c++) {
+        if (!inShape(rb, c)) continue;
+        octx.fillStyle = state.cells[rb + "," + c] || WOOL_WHITE;
+        octx.fillRect(pad + c * cs, pad + rTop * cs, cs, cs);
+        octx.strokeStyle = "rgba(38,34,30,0.25)";
+        octx.lineWidth = 1;
+        octx.strokeRect(pad + c * cs + 0.5, pad + rTop * cs + 0.5, cs - 1, cs - 1);
+      }
+    }
+    var saveShape = shapePath(pad, pad, cs);
+    octx.strokeStyle = "#26221E";
+    octx.lineWidth = 2;
+    octx.stroke(saveShape);
+    var a = document.createElement("a");
+    a.download = "selbuvott-chart.png";
+    a.href = out.toDataURL("image/png");
+    a.click();
+  });
+
+  // ---- boot ----
+  load();
+  stitchesInput.value = state.stitches;
+  bodyRowsInput.value = state.bodyRows;
+  mirrorInput.checked = state.mirror;
+  renderSwatches();
+  draw();
+  window.addEventListener("resize", draw);
+})();
+</script>
+</body>
+</html>
