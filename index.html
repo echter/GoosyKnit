@@ -223,10 +223,50 @@
     text-align: center;
   }
 
+  .chart-body {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+  }
   .chart-scroll {
     overflow: auto;
     max-width: 100%;
+    flex: 1;
   }
+  .row-tracker {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+  }
+  .rt-label {
+    font-size: 0.62rem;
+    font-weight: 600;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+  }
+  .row-tracker button {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 1rem;
+    width: 34px; height: 34px;
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .row-tracker button:hover { border-color: var(--ink); }
+  #rowNum {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 1rem;
+    font-weight: 500;
+    color: var(--ink-soft);
+    min-width: 34px;
+    text-align: center;
+    padding: 0.2rem 0;
+  }
+  #rowNum.active { color: var(--red); font-weight: 500; }
   #chart {
     display: block;
     margin: 0 auto; /* centered until it overflows, then the wrapper scrolls */
@@ -289,7 +329,6 @@
       <div class="tools">
         <button class="tool selected" id="tool-paint" data-tool="paint">Knit <small>1</small></button>
         <button class="tool" id="tool-erase" data-tool="erase">Erase <small>2</small></button>
-        <button class="tool" id="tool-rose" data-tool="rose">Selburose stamp <small>3</small></button>
       </div>
     </section>
 
@@ -303,7 +342,7 @@
         <label for="bodyRows">Rows before tip</label>
         <input type="number" id="bodyRows" min="4" max="90" value="34">
       </div>
-      <label class="check"><input type="checkbox" id="mirror" checked> Mirror left &harr; right</label>
+      <label class="check"><input type="checkbox" id="mirror"> Mirror left &harr; right</label>
     </section>
 
     <section>
@@ -333,12 +372,20 @@
         <button id="zoomFit" class="zoom-fit" aria-label="Fit whole mitten in view">Fit</button>
       </div>
     </div>
-    <div class="chart-scroll" id="chartScroll">
-      <canvas id="chart"></canvas>
+    <div class="chart-body">
+      <div class="chart-scroll" id="chartScroll">
+        <canvas id="chart"></canvas>
+      </div>
+      <div class="row-tracker" aria-label="Current knitting row">
+        <span class="rt-label">Row</span>
+        <button id="rowUp" title="Next row (+)">+</button>
+        <span id="rowNum">&mdash;</span>
+        <button id="rowDown" title="Previous row (&minus;)">&minus;</button>
+      </div>
     </div>
     <div class="chart-foot">
       <span id="counts"></span>
-      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F flips side &middot; autosaves</span>
+      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F flips side &middot; +/&minus; steps the row &middot; autosaves</span>
     </div>
   </main>
 </div>
@@ -354,33 +401,16 @@
   var DEFAULT_YARNS = ["#26221E", "#9E3229", "#2E4A62"];
   var SIDE_LABELS = { front: "Front (back of hand)", back: "Back (palm)" };
 
-  // 8-petal selburose, 15x15
-  var ROSE = [
-    ".......#.......",
-    "......###......",
-    "...#.#####.#...",
-    "..###.###.###..",
-    "...#...#...#...",
-    "..#....#....#..",
-    ".###..###..###.",
-    "###############",
-    ".###..###..###.",
-    "..#....#....#..",
-    "...#...#...#...",
-    "..###.###.###..",
-    "...#.#####.#...",
-    "......###......",
-    ".......#......."
-  ];
-
   var state = {
     stitches: 27,
     bodyRows: 34,
-    mirror: true,
+    mirror: false,
     yarns: DEFAULT_YARNS.slice(),
     activeYarn: 0,
     tool: "paint",
     side: "front",
+    // knit in the round: one current row spans both sides (1-based, 0 = not started)
+    currentRow: 1,
     // each side: cells keyed "rowFromBottom,col" -> hex color (absent = wool white)
     sides: { front: {}, back: {} }
   };
@@ -420,6 +450,7 @@
         yarns: state.yarns,
         activeYarn: state.activeYarn,
         side: state.side,
+        currentRow: state.currentRow,
         sides: state.sides
       }));
     } catch (e) { /* private browsing: chart just won't persist */ }
@@ -441,13 +472,14 @@
         state.sides.front = d.cells; // older save format had a single chart
       }
       if (d.side === "front" || d.side === "back") state.side = d.side;
+      if (typeof d.currentRow === "number") state.currentRow = d.currentRow;
     } catch (e) { /* corrupt save: start fresh */ }
   }
 
   // ---- drawing ----
   function fitCellSize() {
     var W = state.stitches, R = totalRows();
-    var availW = Math.min(document.body.clientWidth - 40, 920) - RULER - 44;
+    var availW = Math.min(document.body.clientWidth - 40, 920) - RULER - 44 - 52; /* 52: row tracker */
     var card = document.querySelector(".chart-card");
     var availH = window.innerHeight - card.offsetTop - 150 - RULER;
     if (availH < 160) availH = 160;
@@ -508,6 +540,27 @@
     ctx.lineWidth = 1.5;
     ctx.stroke(shapePath(ox, oy, cellPx));
 
+    // highlight the row currently on the needles
+    if (state.currentRow >= 1 && state.currentRow <= R) {
+      var hrb = state.currentRow - 1;
+      var hIns = insetFor(hrb);
+      var hy = oy + (R - 1 - hrb) * cellPx;
+      ctx.strokeStyle = "#9E3229";
+      ctx.lineWidth = 2;
+      ctx.strokeRect(ox + hIns * cellPx + 1, hy + 1, (W - 2 * hIns) * cellPx - 2, cellPx - 2);
+      // arrow marker in the right ruler pointing at the row
+      ctx.fillStyle = "#9E3229";
+      ctx.beginPath();
+      ctx.moveTo(ox + W * cellPx + 14, hy + cellPx / 2);
+      ctx.lineTo(ox + W * cellPx + 21, hy + cellPx / 2 - 4);
+      ctx.lineTo(ox + W * cellPx + 21, hy + cellPx / 2 + 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+    var rowNumEl = document.getElementById("rowNum");
+    rowNumEl.textContent = state.currentRow >= 1 ? String(state.currentRow) : "—";
+    rowNumEl.classList.toggle("active", state.currentRow >= 1);
+
     // rulers: stitch numbers along the bottom, row numbers up the right side
     ctx.fillStyle = "rgba(38,34,30,0.7)";
     ctx.font = "500 " + Math.max(8, Math.min(11, cellPx - 6)) + "px 'IBM Plex Mono', monospace";
@@ -566,31 +619,8 @@
 
   function applyAt(rb, col) {
     var color = state.tool === "erase" ? null : state.yarns[state.activeYarn];
-    if (state.tool === "rose") return; // rose stamps on click only
     setCell(rb, col, color);
     if (state.mirror) setCell(rb, state.stitches - 1 - col, color);
-  }
-
-  function stampRose(rb, col) {
-    var color = state.yarns[state.activeYarn];
-    var half = Math.floor(ROSE.length / 2);
-    for (var r = 0; r < ROSE.length; r++) {
-      for (var c = 0; c < ROSE[r].length; c++) {
-        if (ROSE[r][c] !== "#") continue;
-        setCell(rb + (half - r), col + (c - half), color);
-      }
-    }
-    if (state.mirror) {
-      var mc = state.stitches - 1 - col;
-      if (mc !== col) {
-        for (r = 0; r < ROSE.length; r++) {
-          for (c = 0; c < ROSE[r].length; c++) {
-            if (ROSE[r][c] !== "#") continue;
-            setCell(rb + (half - r), mc + (c - half), color);
-          }
-        }
-      }
-    }
   }
 
   function cellFromEvent(ev) {
@@ -614,12 +644,6 @@
     canvas.setPointerCapture(e.pointerId);
     currentStroke = { side: state.side, changes: [] };
     var cell = cellFromEvent(e);
-    if (state.tool === "rose" && e.button !== 2) {
-      stampRose(cell.rb, cell.col);
-      endStroke();
-      draw(); save();
-      return;
-    }
     painting = true;
     erasingDrag = (e.button === 2);
     lastCell = cell;
@@ -715,9 +739,18 @@
     if (e.target.tagName === "INPUT") return;
     if (e.key === "1") selectTool("paint");
     if (e.key === "2") selectTool("erase");
-    if (e.key === "3") selectTool("rose");
     if (k === "f") setSide(state.side === "front" ? "back" : "front");
+    if (e.key === "+" || e.key === "=") stepRow(1);
+    if (e.key === "-") stepRow(-1);
   });
+
+  // ---- knitting row tracker ----
+  function stepRow(delta) {
+    state.currentRow = Math.max(0, Math.min(totalRows(), state.currentRow + delta));
+    draw(); save();
+  }
+  document.getElementById("rowUp").addEventListener("click", function () { stepRow(1); });
+  document.getElementById("rowDown").addEventListener("click", function () { stepRow(-1); });
 
   // ---- sides ----
   function setSide(side, skipDraw) {
@@ -792,7 +825,7 @@
 
   stitchesInput.addEventListener("change", function () {
     var v = Math.max(9, Math.min(61, Math.round(Number(stitchesInput.value) || 27)));
-    if (v % 2 === 0) v += 1; // odd width keeps a center stitch for the rose
+    if (v % 2 === 0) v += 1; // odd width keeps a center stitch for symmetric motifs
     stitchesInput.value = v;
     resizeChart(v, state.bodyRows);
   });
@@ -830,6 +863,7 @@
     });
     undoStack = [];
     redoStack = [];
+    state.currentRow = Math.min(state.currentRow, totalRows());
     draw(); save();
   }
 
