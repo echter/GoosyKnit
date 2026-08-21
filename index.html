@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Selbuvott — mitten chart maker</title>
+<title>GoosyKnit — selbu mitten chart maker</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%23EEEAE0'/><path d='M8 1 L13 6 V15 H3 V6 Z' fill='%2326221E'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -154,6 +154,21 @@
   .check { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; cursor: pointer; }
   .check input { accent-color: var(--red); width: 16px; height: 16px; }
 
+  .seg { display: flex; gap: 0.3rem; }
+  .seg button {
+    font-family: "Jost", sans-serif;
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    padding: 0.25rem 0.6rem;
+    background: transparent;
+    border: 1px solid var(--hairline);
+    color: var(--ink-soft);
+    cursor: pointer;
+  }
+  .seg button:hover { border-color: var(--ink); color: var(--ink); }
+  .seg button.selected { background: var(--ink); color: var(--card); border-color: var(--ink); }
+
   .actions { display: flex; flex-direction: column; gap: 0.4rem; }
   .action-row { display: flex; gap: 0.4rem; }
   .action-row .action { flex: 1; }
@@ -301,6 +316,59 @@
     outline-offset: 2px;
   }
 
+  #goose {
+    position: fixed;
+    right: 16px;
+    bottom: 12px;
+    background: transparent;
+    border: 0;
+    padding: 4px;
+    cursor: pointer;
+    z-index: 10;
+  }
+  #gooseSvg { width: 52px; height: 52px; display: block; }
+  #goose:hover #gooseSvg { transform: rotate(-4deg); }
+  #goose.honking #gooseSvg { animation: waddle 0.5s ease; }
+  @keyframes waddle {
+    0%, 100% { transform: rotate(0); }
+    25% { transform: rotate(-8deg); }
+    75% { transform: rotate(6deg); }
+  }
+  .honk {
+    position: absolute;
+    right: 44px;
+    bottom: 52px;
+    background: var(--card);
+    border: 1px solid var(--ink);
+    box-shadow: 2px 2px 0 rgba(38, 34, 30, 0.18);
+    padding: 0.25rem 0.6rem;
+    font-family: "Jost", sans-serif;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.08em;
+    color: var(--ink);
+    white-space: nowrap;
+    animation: honk-pop 0.18s ease-out;
+  }
+  .honk::after {
+    content: "";
+    position: absolute;
+    right: -6px;
+    bottom: 6px;
+    width: 10px;
+    height: 1px;
+    background: var(--ink);
+    transform: rotate(35deg);
+  }
+  @keyframes honk-pop {
+    from { transform: scale(0.6); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #goose.honking #gooseSvg, .honk { animation: none; }
+    #goose:hover #gooseSvg { transform: none; }
+  }
+
   @media (max-width: 720px) {
     .workshop { flex-direction: column; align-items: stretch; }
     .panel { width: 100%; }
@@ -311,9 +379,9 @@
 <body>
 
 <header>
-  <h1>Selbuvott</h1>
+  <h1>GoosyKnit</h1>
   <hr class="rule">
-  <p>Mitten chart maker &middot; strikkemønster</p>
+  <p>Selbu mitten chart maker &middot; strikkemønster</p>
 </header>
 
 <div class="workshop">
@@ -343,6 +411,30 @@
         <input type="number" id="bodyRows" min="4" max="90" value="34">
       </div>
       <label class="check"><input type="checkbox" id="mirror"> Mirror left &harr; right</label>
+    </section>
+
+    <section>
+      <h2>Thumb &middot; palm side</h2>
+      <label class="check" style="margin-bottom:0.55rem"><input type="checkbox" id="thumbShow" checked> Mark thumb opening</label>
+      <div class="field">
+        <label for="thumbWidth">Stitches</label>
+        <input type="number" id="thumbWidth" min="3" max="25" value="9">
+      </div>
+      <div class="field">
+        <label for="thumbRow">At row</label>
+        <input type="number" id="thumbRow" min="1" max="90" value="12">
+      </div>
+      <div class="field">
+        <label id="thumbSideLabel">Chart side</label>
+        <div class="seg" role="group" aria-labelledby="thumbSideLabel">
+          <button id="thumbLeft" data-tside="left">Left</button>
+          <button id="thumbRight" data-tside="right" class="selected">Right</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="thumbInset">From edge</label>
+        <input type="number" id="thumbInset" min="0" max="20" value="1">
+      </div>
     </section>
 
     <section>
@@ -392,6 +484,11 @@
 
 <footer>Charted in the tradition of Selbu, Norway &mdash; read from the bottom up.</footer>
 
+<button id="goose" aria-label="Goose. Click to honk." title="Honk?">
+  <span id="honk" class="honk" hidden>Honk!</span>
+  <svg id="gooseSvg" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"></svg>
+</button>
+
 <script>
 (function () {
   "use strict";
@@ -411,6 +508,8 @@
     side: "front",
     // knit in the round: one current row spans both sides (1-based, 0 = not started)
     currentRow: 1,
+    // thumb opening marker, drawn on the palm side only
+    thumb: { show: true, width: 9, row: 12, side: "right", inset: 1 },
     // each side: cells keyed "rowFromBottom,col" -> hex color (absent = wool white)
     sides: { front: {}, back: {} }
   };
@@ -440,6 +539,20 @@
     return col >= inset && col < state.stitches - inset;
   }
 
+  // Where the thumb marker sits, clamped inside the mitten; null if it can't fit.
+  function thumbRect() {
+    var W = state.stitches;
+    var t = state.thumb;
+    var rb = t.row - 1;
+    if (rb < 0 || rb >= totalRows()) return null;
+    var shapeInset = insetFor(rb);
+    var w = Math.min(t.width, W - 2 * shapeInset);
+    if (w < 1) return null;
+    var c0 = t.side === "left" ? shapeInset + t.inset : W - shapeInset - t.inset - w;
+    c0 = Math.max(shapeInset, Math.min(W - shapeInset - w, c0));
+    return { rb: rb, c0: c0, w: w };
+  }
+
   // ---- persistence ----
   function save() {
     try {
@@ -451,6 +564,7 @@
         activeYarn: state.activeYarn,
         side: state.side,
         currentRow: state.currentRow,
+        thumb: state.thumb,
         sides: state.sides
       }));
     } catch (e) { /* private browsing: chart just won't persist */ }
@@ -473,6 +587,11 @@
       }
       if (d.side === "front" || d.side === "back") state.side = d.side;
       if (typeof d.currentRow === "number") state.currentRow = d.currentRow;
+      if (d.thumb && typeof d.thumb === "object") {
+        ["show", "width", "row", "side", "inset"].forEach(function (k) {
+          if (k in d.thumb) state.thumb[k] = d.thumb[k];
+        });
+      }
     } catch (e) { /* corrupt save: start fresh */ }
   }
 
@@ -539,6 +658,30 @@
     ctx.strokeStyle = "#26221E";
     ctx.lineWidth = 1.5;
     ctx.stroke(shapePath(ox, oy, cellPx));
+
+    // thumb opening marker, palm side only
+    if (state.side === "back" && state.thumb.show) {
+      var tr = thumbRect();
+      if (tr) {
+        var tx = ox + tr.c0 * cellPx;
+        var ty = oy + (R - 1 - tr.rb) * cellPx;
+        ctx.fillStyle = "rgba(158,50,41,0.14)";
+        ctx.fillRect(tx, ty, tr.w * cellPx, cellPx);
+        ctx.strokeStyle = "#9E3229";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
+        ctx.strokeRect(tx + 1, ty + 1, tr.w * cellPx - 2, cellPx - 2);
+        ctx.setLineDash([]);
+        if (cellPx >= 9 && tr.w * cellPx >= 46) {
+          ctx.fillStyle = "#9E3229";
+          ctx.font = "600 " + Math.min(11, cellPx - 1) + "px 'Jost', sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("THUMB", tx + tr.w * cellPx / 2, ty + cellPx / 2 + 0.5);
+          ctx.textAlign = "left";
+        }
+      }
+    }
 
     // highlight the row currently on the needles
     if (state.currentRow >= 1 && state.currentRow <= R) {
@@ -839,6 +982,47 @@
     save();
   });
 
+  // ---- thumb controls ----
+  var thumbShowInput = document.getElementById("thumbShow");
+  var thumbWidthInput = document.getElementById("thumbWidth");
+  var thumbRowInput = document.getElementById("thumbRow");
+  var thumbInsetInput = document.getElementById("thumbInset");
+
+  function syncThumbInputs() {
+    thumbShowInput.checked = state.thumb.show;
+    thumbWidthInput.value = state.thumb.width;
+    thumbRowInput.value = state.thumb.row;
+    thumbInsetInput.value = state.thumb.inset;
+    document.querySelectorAll(".seg button").forEach(function (b) {
+      b.classList.toggle("selected", b.dataset.tside === state.thumb.side);
+    });
+  }
+  thumbShowInput.addEventListener("change", function () {
+    state.thumb.show = thumbShowInput.checked;
+    draw(); save();
+  });
+  thumbWidthInput.addEventListener("change", function () {
+    var v = Math.max(3, Math.min(25, Math.round(Number(thumbWidthInput.value) || 9)));
+    state.thumb.width = v;
+    syncThumbInputs(); draw(); save();
+  });
+  thumbRowInput.addEventListener("change", function () {
+    var v = Math.max(1, Math.min(totalRows(), Math.round(Number(thumbRowInput.value) || 12)));
+    state.thumb.row = v;
+    syncThumbInputs(); draw(); save();
+  });
+  thumbInsetInput.addEventListener("change", function () {
+    var v = Math.max(0, Math.min(20, Math.round(Number(thumbInsetInput.value) || 0)));
+    state.thumb.inset = v;
+    syncThumbInputs(); draw(); save();
+  });
+  document.querySelectorAll(".seg button").forEach(function (b) {
+    b.addEventListener("click", function () {
+      state.thumb.side = b.dataset.tside;
+      syncThumbInputs(); draw(); save();
+    });
+  });
+
   // Re-center columns when the width changes; rows stay anchored at the cast-on edge.
   function resizeChart(newStitches, newBodyRows) {
     var shift = Math.floor((newStitches - state.stitches) / 2);
@@ -864,6 +1048,8 @@
     undoStack = [];
     redoStack = [];
     state.currentRow = Math.min(state.currentRow, totalRows());
+    state.thumb.row = Math.min(state.thumb.row, totalRows());
+    syncThumbInputs();
     draw(); save();
   }
 
@@ -904,8 +1090,27 @@
     octx.strokeStyle = "#26221E";
     octx.lineWidth = 2;
     octx.stroke(shapePath(pad, pad, cs));
+    if (state.side === "back" && state.thumb.show) {
+      var tr = thumbRect();
+      if (tr) {
+        var tx = pad + tr.c0 * cs;
+        var ty = pad + (R - 1 - tr.rb) * cs;
+        octx.fillStyle = "rgba(158,50,41,0.14)";
+        octx.fillRect(tx, ty, tr.w * cs, cs);
+        octx.strokeStyle = "#9E3229";
+        octx.lineWidth = 2;
+        octx.setLineDash([6, 4]);
+        octx.strokeRect(tx + 1, ty + 1, tr.w * cs - 2, cs - 2);
+        octx.setLineDash([]);
+        octx.fillStyle = "#9E3229";
+        octx.font = "600 14px 'Jost', sans-serif";
+        octx.textAlign = "center";
+        octx.textBaseline = "middle";
+        octx.fillText("THUMB", tx + tr.w * cs / 2, ty + cs / 2 + 1);
+      }
+    }
     var a = document.createElement("a");
-    a.download = "selbuvott-" + state.side + ".png";
+    a.download = "goosyknit-" + state.side + ".png";
     a.href = out.toDataURL("image/png");
     a.click();
   });
@@ -933,7 +1138,7 @@
     var ops = [];
 
     // title block, leaflet style
-    ops.push("BT /F1 16 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin + 10) + " Tm 3 Tc (SELBUVOTT) Tj ET");
+    ops.push("BT /F1 16 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin + 10) + " Tm 3 Tc (GOOSYKNIT) Tj ET");
     ops.push("BT /F1 9 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin - 6) + " Tm 1 Tc (" +
       pdfEscape(label.toUpperCase()) + ") Tj ET");
     ops.push("BT /F1 8 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin - 18) + " Tm 0.5 Tc (" +
@@ -979,6 +1184,18 @@
       return n2(ox + p[0] * cs) + " " + n2(oy + p[1] * cs) + " " + (i === 0 ? "m" : "l");
     }).join(" ");
     ops.push("0.149 0.133 0.118 RG 1.4 w " + path + " h S");
+
+    // thumb opening marker, palm page only
+    if (sideKey === "back" && state.thumb.show) {
+      var tr = thumbRect();
+      if (tr) {
+        var thx = ox + tr.c0 * cs, thy = oy + tr.rb * cs;
+        ops.push("0.62 0.20 0.16 RG 1.2 w [3 2] 0 d " +
+          n2(thx) + " " + n2(thy) + " " + n2(tr.w * cs) + " " + n2(cs) + " re S [] 0 d");
+        ops.push("0.62 0.20 0.16 rg BT /F1 " + n2(Math.min(7, cs - 1)) + " Tf 1 0 0 1 " +
+          n2(thx + tr.w * cs / 2 - 12) + " " + n2(thy + cs / 2 - 2.5) + " Tm (THUMB) Tj ET");
+      }
+    }
 
     // stitch numbers along the bottom (stitch 1 at the right), row numbers at the right
     ops.push("0.35 0.33 0.30 rg");
@@ -1031,10 +1248,63 @@
     for (var i = 0; i < pdf.length; i++) bytes[i] = pdf.charCodeAt(i) & 0xFF;
     var blob = new Blob([bytes], { type: "application/pdf" });
     var a = document.createElement("a");
-    a.download = "selbuvott-chart.pdf";
+    a.download = "goosyknit-chart.pdf";
     a.href = URL.createObjectURL(blob);
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 5000);
+  });
+
+  // ---- the goose ----
+  // pixel goose in chart style: # = ink, r = red (beak, feet), w = eye
+  var GOOSE = [
+    "................",
+    "..###...........",
+    ".#####..........",
+    ".##w##..........",
+    "rr####..........",
+    "..####..........",
+    "...###..........",
+    "...###.......##.",
+    "...###......###.",
+    "...##########...",
+    "..#############.",
+    "..############..",
+    "...##########...",
+    "....########....",
+    "......rr..rr....",
+    ".....rr...rr...."
+  ];
+  (function buildGoose() {
+    var svg = document.getElementById("gooseSvg");
+    var ns = "http://www.w3.org/2000/svg";
+    var fills = { "#": "#26221E", "r": "#9E3229", "w": "#F9F6EF" };
+    for (var y = 0; y < GOOSE.length; y++) {
+      for (var x = 0; x < GOOSE[y].length; x++) {
+        var ch = GOOSE[y][x];
+        if (ch === ".") continue;
+        var rect = document.createElementNS(ns, "rect");
+        rect.setAttribute("x", x);
+        rect.setAttribute("y", y);
+        rect.setAttribute("width", 1);
+        rect.setAttribute("height", 1);
+        rect.setAttribute("fill", fills[ch]);
+        svg.appendChild(rect);
+      }
+    }
+  })();
+  var honkTimer = null;
+  document.getElementById("goose").addEventListener("click", function () {
+    var goose = this;
+    var honk = document.getElementById("honk");
+    honk.hidden = false;
+    goose.classList.remove("honking");
+    void goose.offsetWidth; // restart the waddle animation
+    goose.classList.add("honking");
+    clearTimeout(honkTimer);
+    honkTimer = setTimeout(function () {
+      honk.hidden = true;
+      goose.classList.remove("honking");
+    }, 1200);
   });
 
   // ---- boot ----
@@ -1042,6 +1312,7 @@
   stitchesInput.value = state.stitches;
   bodyRowsInput.value = state.bodyRows;
   mirrorInput.checked = state.mirror;
+  syncThumbInputs();
   renderSwatches();
   setSide(state.side, true);
   draw();

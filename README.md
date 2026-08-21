@@ -1,4 +1,4 @@
-# GoosyKnit — Selbuvott chart maker
+# GoosyKnit — selbu mitten chart maker
 
 A browser-based knitting chart editor for classic Selbu mittens (selbuvotter):
 a mitten-shaped grid with a rectangular body and a triangular tip, drawn in
@@ -19,6 +19,9 @@ the style of a vintage Norwegian pattern leaflet.
   needles and highlights it in red (shared across both sides — mittens are
   knit in the round). Keyboard: + and −.
 - Optional mirror mode (off by default) paints both halves symmetrically.
+- Thumb opening marker on the palm side: customizable width, row, chart side
+  (left/right), and inset from the edge; included in PNG and PDF exports.
+- A resident pixel goose in the bottom-right corner. It honks.
 - Right-click drag erases; undo/redo buttons plus Ctrl+Z / Ctrl+Y, per stroke.
 - The whole mitten fits the window by default; zoom in/out/fit controls.
 - Chart conventions: bold gridline every 5 stitches/rows, stitch numbers along
