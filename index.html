@@ -483,7 +483,14 @@
           <button class="action" id="redo">Redo <small>&#8963;Y</small></button>
         </div>
         <button class="action" id="download">Download PNG <small id="downloadScope">view</small></button>
-        <button class="action" id="exportPdf">Export PDF <small>both</small></button>
+        <div class="field" style="margin-bottom:0">
+          <label id="pdfLayoutLabel">PDF layout</label>
+          <div class="seg" role="group" aria-labelledby="pdfLayoutLabel">
+            <button data-pdf="side" class="selected">Side by side</button>
+            <button data-pdf="pages">Per page</button>
+          </div>
+        </div>
+        <button class="action" id="exportPdf">Export PDF <small id="pdfScope">1 page</small></button>
         <button class="action danger" id="clear">Clear this side</button>
       </div>
     </section>
@@ -535,6 +542,8 @@
     currentRow: 1,
     // thumb opening marker, drawn on the palm side only
     thumb: { show: true, width: 9, row: 12, side: "right", inset: 1 },
+    // PDF export layout: "side" = both charts on one landscape page, "pages" = one portrait page each
+    pdfLayout: "side",
     // each side: cells keyed "rowFromBottom,col" -> hex color (absent = wool white)
     sides: { front: {}, back: {} }
   };
@@ -598,6 +607,7 @@
         side: state.side,
         currentRow: state.currentRow,
         thumb: state.thumb,
+        pdfLayout: state.pdfLayout,
         sides: state.sides
       }));
     } catch (e) { /* private browsing: chart just won't persist */ }
@@ -622,6 +632,7 @@
       if (d.side === "front" || d.side === "back") state.side = d.side;
       if (d.view === "both" || d.view === "front" || d.view === "back") state.view = d.view;
       if (typeof d.currentRow === "number") state.currentRow = d.currentRow;
+      if (d.pdfLayout === "side" || d.pdfLayout === "pages") state.pdfLayout = d.pdfLayout;
       if (d.thumb && typeof d.thumb === "object") {
         ["show", "width", "row", "side", "inset"].forEach(function (k) {
           if (k in d.thumb) state.thumb[k] = d.thumb[k];
@@ -1101,7 +1112,7 @@
     thumbWidthInput.value = state.thumb.width;
     thumbRowInput.value = state.thumb.row;
     thumbInsetInput.value = state.thumb.inset;
-    document.querySelectorAll(".seg button").forEach(function (b) {
+    document.querySelectorAll(".seg button[data-tside]").forEach(function (b) {
       b.classList.toggle("selected", b.dataset.tside === state.thumb.side);
     });
   }
@@ -1124,10 +1135,24 @@
     state.thumb.inset = v;
     syncThumbInputs(); draw(); save();
   });
-  document.querySelectorAll(".seg button").forEach(function (b) {
+  document.querySelectorAll(".seg button[data-tside]").forEach(function (b) {
     b.addEventListener("click", function () {
       state.thumb.side = b.dataset.tside;
       syncThumbInputs(); draw(); save();
+    });
+  });
+
+  // ---- PDF layout choice ----
+  function syncPdfLayout() {
+    document.querySelectorAll(".seg button[data-pdf]").forEach(function (b) {
+      b.classList.toggle("selected", b.dataset.pdf === state.pdfLayout);
+    });
+    document.getElementById("pdfScope").textContent = state.pdfLayout === "side" ? "1 page" : "2 pages";
+  }
+  document.querySelectorAll(".seg button[data-pdf]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      state.pdfLayout = b.dataset.pdf;
+      syncPdfLayout(); save();
     });
   });
 
@@ -1266,25 +1291,27 @@
   }
   function n2(v) { return (Math.round(v * 100) / 100).toString(); }
 
-  function pdfPageContent(sideKey, label) {
-    var W = state.stitches, R = totalRows(), T = tipRows(), B = state.bodyRows, C = state.cuffRows;
-    var pageW = 595.28, pageH = 841.89, margin = 56, titleBlock = 60;
-    var cs = Math.min((pageW - 2 * margin) / W, (pageH - 2 * margin - titleBlock) / (R + C));
-    var chartW = W * cs;
-    var ox = (pageW - chartW) / 2;
-    var oy = margin + C * cs; // body sits above the ribbekant cuff
-    var grid = state.sides[sideKey];
+  function pdfTitleOps(pageW, pageH, margin, subtitle) {
+    var W = state.stitches, R = totalRows(), T = tipRows(), C = state.cuffRows;
     var ops = [];
-
-    // title block, leaflet style
     ops.push("BT /F1 16 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin + 10) + " Tm 3 Tc (GOOSYKNIT) Tj ET");
     ops.push("BT /F1 9 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin - 6) + " Tm 1 Tc (" +
-      pdfEscape(label.toUpperCase()) + ") Tj ET");
+      pdfEscape(subtitle.toUpperCase()) + ") Tj ET");
     ops.push("BT /F1 8 Tf 1 0 0 1 " + n2(margin) + " " + n2(pageH - margin - 18) + " Tm 0.5 Tc (" +
       W + " STS x " + R + " ROWS - TIP " + T + (C > 0 ? " - RIBBEKANT " + C : "") +
       " - READ BOTTOM UP, STITCH 1 AT RIGHT) Tj ET");
     ops.push("0.149 0.133 0.118 RG 1 w " +
       n2(margin) + " " + n2(pageH - margin - 26) + " m " + n2(pageW - margin) + " " + n2(pageH - margin - 26) + " l S");
+    return ops;
+  }
+
+  // One mitten chart with its ribbekant and rulers; baseY is the page y of the cuff's bottom edge.
+  function pdfChartOps(sideKey, ox, baseY, cs) {
+    var W = state.stitches, R = totalRows(), T = tipRows(), B = state.bodyRows, C = state.cuffRows;
+    var chartW = W * cs;
+    var oy = baseY + C * cs; // body sits above the ribbekant cuff
+    var grid = state.sides[sideKey];
+    var ops = [];
 
     // cells (y-up: row rb sits at oy + rb*cs)
     for (var rb = 0; rb < R; rb++) {
@@ -1329,15 +1356,15 @@
     if (C > 0) {
       for (var rc = 1; rc < W; rc += 2) {
         ops.push("0.92 0.91 0.89 rg " +
-          n2(ox + rc * cs) + " " + n2(margin) + " " + n2(cs) + " " + n2(C * cs) + " re f");
+          n2(ox + rc * cs) + " " + n2(baseY) + " " + n2(cs) + " " + n2(C * cs) + " re f");
       }
       ops.push("0.66 0.64 0.61 RG 0.4 w");
       for (var rl = 1; rl < W; rl++) {
-        ops.push(n2(ox + rl * cs) + " " + n2(margin) + " m " +
-          n2(ox + rl * cs) + " " + n2(margin + C * cs) + " l S");
+        ops.push(n2(ox + rl * cs) + " " + n2(baseY) + " m " +
+          n2(ox + rl * cs) + " " + n2(baseY + C * cs) + " l S");
       }
       ops.push("0.149 0.133 0.118 RG 1.4 w " +
-        n2(ox) + " " + n2(margin) + " " + n2(chartW) + " " + n2(C * cs) + " re S");
+        n2(ox) + " " + n2(baseY) + " " + n2(chartW) + " " + n2(C * cs) + " re S");
     }
 
     // thumb opening marker, palm page only
@@ -1347,7 +1374,7 @@
         var thx = ox + tr.c0 * cs, thy = oy + tr.rb * cs;
         ops.push("0.62 0.20 0.16 RG 1.2 w [3 2] 0 d " +
           n2(thx) + " " + n2(thy) + " " + n2(tr.w * cs) + " " + n2(cs) + " re S [] 0 d");
-        ops.push("0.62 0.20 0.16 rg BT /F1 " + n2(Math.min(7, cs - 1)) + " Tf 1 0 0 1 " +
+        ops.push("0.62 0.20 0.16 rg BT /F1 " + n2(Math.min(7, cs - 1)) + " Tf 0 Tc 1 0 0 1 " +
           n2(thx + tr.w * cs / 2 - 12) + " " + n2(thy + cs / 2 - 2.5) + " Tm (THUMB) Tj ET");
       }
     }
@@ -1356,31 +1383,59 @@
     ops.push("0.35 0.33 0.30 rg");
     for (var s = 5; s <= W; s += 5) {
       var tx = ox + (W - s) * cs + cs / 2 - 3;
-      ops.push("BT /F1 7 Tf 1 0 0 1 " + n2(tx) + " " + n2(margin - 12) + " Tm (" + s + ") Tj ET");
+      ops.push("BT /F1 7 Tf 0 Tc 1 0 0 1 " + n2(tx) + " " + n2(baseY - 12) + " Tm (" + s + ") Tj ET");
     }
     for (var rn = 5; rn <= R; rn += 5) {
       var ty = oy + (rn - 1) * cs + cs / 2 - 2.5;
-      ops.push("BT /F1 7 Tf 1 0 0 1 " + n2(ox + W * cs + 6) + " " + n2(ty) + " Tm (" + rn + ") Tj ET");
+      ops.push("BT /F1 7 Tf 0 Tc 1 0 0 1 " + n2(ox + W * cs + 6) + " " + n2(ty) + " Tm (" + rn + ") Tj ET");
     }
 
-    return ops.join("\n");
+    return ops;
   }
 
   function buildPdf() {
-    var pages = [
-      pdfPageContent("front", SIDE_LABELS.front),
-      pdfPageContent("back", SIDE_LABELS.back)
-    ];
+    var W = state.stitches, R = totalRows(), C = state.cuffRows;
+    var pages; // [{content, w, h}]
+
+    if (state.pdfLayout === "pages") {
+      // one portrait A4 page per side
+      var pw = 595.28, ph = 841.89, m = 56, titleBlock = 60;
+      var cs = Math.min((pw - 2 * m) / W, (ph - 2 * m - titleBlock) / (R + C));
+      var ox = (pw - W * cs) / 2;
+      pages = ["front", "back"].map(function (sideKey) {
+        var ops = pdfTitleOps(pw, ph, m, SIDE_LABELS[sideKey])
+          .concat(pdfChartOps(sideKey, ox, m, cs));
+        return { content: ops.join("\n"), w: pw, h: ph };
+      });
+    } else {
+      // both sides on one landscape A4 page
+      var lw = 841.89, lh = 595.28, lm = 50, lTitle = 60, gap = 30;
+      var lcs = Math.min((lw - 2 * lm - gap) / (2 * W), (lh - 2 * lm - lTitle) / (R + C));
+      var chartW = W * lcs;
+      var ox1 = (lw - (2 * chartW + gap)) / 2;
+      var ox2 = ox1 + chartW + gap;
+      var topY = lm + (R + C) * lcs;
+      var ops2 = pdfTitleOps(lw, lh, lm, "Front + back");
+      ops2.push("0.149 0.133 0.118 rg");
+      ops2.push("BT /F1 9 Tf 1 Tc 1 0 0 1 " + n2(ox1) + " " + n2(topY + 8) + " Tm (" +
+        pdfEscape(SIDE_LABELS.front.toUpperCase()) + ") Tj ET");
+      ops2.push("BT /F1 9 Tf 1 Tc 1 0 0 1 " + n2(ox2) + " " + n2(topY + 8) + " Tm (" +
+        pdfEscape(SIDE_LABELS.back.toUpperCase()) + ") Tj ET");
+      ops2 = ops2.concat(pdfChartOps("front", ox1, lm, lcs), pdfChartOps("back", ox2, lm, lcs));
+      pages = [{ content: ops2.join("\n"), w: lw, h: lh }];
+    }
+
     var objects = [];
     objects.push("<</Type/Catalog/Pages 2 0 R>>");                       // 1
-    objects.push("<</Type/Pages/Kids[3 0 R 5 0 R]/Count 2>>");           // 2
-    var pageDict = "<</Type/Page/Parent 2 0 R/MediaBox[0 0 595.28 841.89]" +
-      "/Resources<</Font<</F1 7 0 R>>>>/Contents ";
-    objects.push(pageDict + "4 0 R>>");                                  // 3
-    objects.push("<</Length " + pages[0].length + ">>\nstream\n" + pages[0] + "\nendstream"); // 4
-    objects.push(pageDict + "6 0 R>>");                                  // 5
-    objects.push("<</Length " + pages[1].length + ">>\nstream\n" + pages[1] + "\nendstream"); // 6
-    objects.push("<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>");     // 7
+    var kids = pages.map(function (_, i) { return (3 + i * 2) + " 0 R"; }).join(" ");
+    objects.push("<</Type/Pages/Kids[" + kids + "]/Count " + pages.length + ">>"); // 2
+    var fontObj = 3 + pages.length * 2;
+    pages.forEach(function (p, i) {
+      objects.push("<</Type/Page/Parent 2 0 R/MediaBox[0 0 " + p.w + " " + p.h + "]" +
+        "/Resources<</Font<</F1 " + fontObj + " 0 R>>>>/Contents " + (4 + i * 2) + " 0 R>>");
+      objects.push("<</Length " + p.content.length + ">>\nstream\n" + p.content + "\nendstream");
+    });
+    objects.push("<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>");     // last
 
     var pdf = "%PDF-1.4\n";
     var offsets = [];
@@ -1432,6 +1487,7 @@
   cuffRowsInput.value = state.cuffRows;
   mirrorInput.checked = state.mirror;
   syncThumbInputs();
+  syncPdfLayout();
   renderSwatches();
   setView(state.view, true);
   draw();
