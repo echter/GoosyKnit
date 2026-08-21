@@ -194,24 +194,12 @@
     margin-bottom: 0.9rem;
   }
 
-  .side-tabs { display: flex; gap: 0.4rem; }
-  .side-tab {
-    font-family: "Jost", sans-serif;
+  .chart-label {
     font-size: 0.72rem;
     font-weight: 600;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    padding: 0.4rem 0.8rem;
-    background: transparent;
-    border: 1px solid var(--hairline);
     color: var(--ink-soft);
-    cursor: pointer;
-  }
-  .side-tab:hover { border-color: var(--ink); color: var(--ink); }
-  .side-tab.selected {
-    background: var(--ink);
-    color: var(--card);
-    border-color: var(--ink);
   }
 
   .zoom {
@@ -474,11 +462,11 @@
       <h2>Chart</h2>
       <div class="field">
         <label for="stitches">Stitches wide</label>
-        <input type="number" id="stitches" min="9" max="61" step="2" value="27">
+        <input type="number" id="stitches" min="9" max="61" step="1" value="30">
       </div>
       <div class="field">
         <label for="bodyRows">Rows before tip</label>
-        <input type="number" id="bodyRows" min="4" max="90" value="34">
+        <input type="number" id="bodyRows" min="4" max="120" value="73">
       </div>
       <div class="field">
         <label for="cuffRows" title="Ribbed cuff knit before the mitten body">Ribbekant rows</label>
@@ -490,11 +478,7 @@
 
   <main class="chart-card">
     <div class="chart-title">
-      <div class="side-tabs" role="tablist" aria-label="Mitten side">
-        <button class="side-tab selected" id="tab-both" data-view="both" role="tab" aria-selected="true">Both sides</button>
-        <button class="side-tab" id="tab-front" data-view="front" role="tab" aria-selected="false">Front &middot; back of hand</button>
-        <button class="side-tab" id="tab-back" data-view="back" role="tab" aria-selected="false">Back &middot; palm</button>
-      </div>
+      <span class="chart-label">Front + palm &middot; joined in the round</span>
       <div class="zoom">
         <button id="zoomOut" aria-label="Zoom out">&minus;</button>
         <span id="zoomPct">100%</span>
@@ -524,7 +508,7 @@
     </div>
     <div class="chart-foot">
       <span id="counts"></span>
-      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F cycles view &middot; +/&minus; steps the row &middot; K knitting mode &middot; autosaves</span>
+      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; +/&minus; steps the row &middot; K knitting mode &middot; autosaves</span>
     </div>
   </main>
 
@@ -538,7 +522,7 @@
       </div>
       <div class="field">
         <label for="thumbRow">At row</label>
-        <input type="number" id="thumbRow" min="1" max="90" value="12">
+        <input type="number" id="thumbRow" min="1" max="150" value="12">
       </div>
       <div class="field">
         <label id="thumbSideLabel">Chart side</label>
@@ -560,7 +544,7 @@
           <button class="action" id="undo">Undo <small>&#8963;Z</small></button>
           <button class="action" id="redo">Redo <small>&#8963;Y</small></button>
         </div>
-        <button class="action" id="download">Download PNG <small id="downloadScope">view</small></button>
+        <button class="action" id="download">Download PNG <small>both</small></button>
         <div class="field" style="margin-bottom:0">
           <label id="pdfLayoutLabel">PDF layout</label>
           <div class="seg" role="group" aria-labelledby="pdfLayoutLabel">
@@ -607,15 +591,14 @@
   var SIDE_LABELS = { front: "Front (back of hand)", back: "Back (palm)" };
 
   var state = {
-    stitches: 27,
-    bodyRows: 34,
+    stitches: 30,
+    bodyRows: 73,
     cuffRows: 16, // ribbekant: ribbed cuff below the body, texture only (not paintable)
     mirror: false,
     yarns: DEFAULT_YARNS.slice(),
     activeYarn: 0,
     tool: "paint",
-    view: "both", // "both" | "front" | "back"
-    side: "front", // active side for editing/clear/export when a single one matters
+    side: "front", // active side for editing/clear when a single one matters
     // knit in the round: one current row spans both sides (1-based, 0 = not started)
     currentRow: 1,
     // knitting mode: tools hidden, chart enlarged, current row shown magnified
@@ -639,11 +622,11 @@
   var ctx = canvas.getContext("2d");
   var cellPx = 18;
   var RULER = 26; // px reserved for stitch/row numbers
-  var GAP = 28;   // px between the two charts in both-sides view
-  var LABEL_H = 18; // px above each chart for its caption in both-sides view
+  var GAP = 0;    // the two sides are joined edge to edge, knit in the round
+  var LABEL_H = 18; // px above each chart for its caption
 
   function viewSides() {
-    return state.view === "both" ? ["front", "back"] : [state.side];
+    return ["front", "back"]; // the chart always shows both sides joined
   }
 
   function cells() { return state.sides[state.side]; }
@@ -662,6 +645,21 @@
     if (rowFromBottom < 0 || rowFromBottom >= totalRows()) return false;
     var inset = insetFor(rowFromBottom);
     return col >= inset && col < state.stitches - inset;
+  }
+
+  // Red divider positions every 15 squares across the joined chart (center of each
+  // side plus the join). Each carries the topmost row (from the bottom) it can reach
+  // before the tip shaping cuts its column away.
+  function dividerCols() {
+    var W = state.stitches, R = totalRows(), B = state.bodyRows;
+    var out = [];
+    for (var g = 15; g < 2 * W; g += 15) {
+      var si = Math.floor(g / W);
+      var c = g - si * W; // local column within that side; 0 = the join between sides
+      var m = Math.min(c, W - c);
+      out.push({ g: g, topRb: Math.min(R - 1, B - 1 + m) });
+    }
+    return out;
   }
 
   // Where the thumb marker sits, clamped inside the mitten; null if it can't fit.
@@ -688,7 +686,6 @@
         mirror: state.mirror,
         yarns: state.yarns,
         activeYarn: state.activeYarn,
-        view: state.view,
         side: state.side,
         currentRow: state.currentRow,
         knitting: state.knitting,
@@ -721,7 +718,6 @@
         state.marks.back = d.marks.back || {};
       }
       if (d.side === "front" || d.side === "back") state.side = d.side;
-      if (d.view === "both" || d.view === "front" || d.view === "back") state.view = d.view;
       if (typeof d.currentRow === "number") state.currentRow = d.currentRow;
       if (typeof d.knitting === "boolean") state.knitting = d.knitting;
       if (d.pdfLayout === "side" || d.pdfLayout === "pages") state.pdfLayout = d.pdfLayout;
@@ -897,6 +893,13 @@
       }
     });
 
+    // red dividers every 15 stitches across the joined round, down through the cuff
+    ctx.fillStyle = "#9E3229";
+    dividerCols().forEach(function (d) {
+      var yTop = oy + (R - 1 - d.topRb) * cellPx;
+      ctx.fillRect(1 + d.g * cellPx - 1, yTop, 2, oy + (R + cuff) * cellPx - yTop);
+    });
+
     var rowNumEl = document.getElementById("rowNum");
     rowNumEl.textContent = state.currentRow >= 1 ? String(state.currentRow) : "—";
     rowNumEl.classList.toggle("active", state.currentRow >= 1);
@@ -922,15 +925,13 @@
     }
 
     document.getElementById("counts").textContent =
-      (state.view === "both" ? "front + back" : (state.side === "front" ? "front" : "back")) + " · " +
-      W + " sts × " + R + " rows (tip " + tipRows() +
+      "front + palm · " + W + " sts each × " + R + " rows (tip " + tipRows() +
       (cuff > 0 ? ", ribbekant " + cuff : "") + ")";
     updateActionLabels();
     updateHistoryButtons();
   }
 
   function updateActionLabels() {
-    document.getElementById("downloadScope").textContent = state.view === "both" ? "both" : "side";
     document.getElementById("clear").textContent =
       "Clear " + (state.side === "front" ? "front" : "back") + " chart";
   }
@@ -1112,7 +1113,6 @@
 
   function showSideOf(stroke) {
     state.side = stroke.side;
-    if (state.view !== "both" && state.view !== stroke.side) setView(stroke.side, true);
   }
 
   function undo() {
@@ -1153,10 +1153,6 @@
     if (e.key === "3") selectTool("ls");
     if (e.key === "4") selectTool("rs");
     if (e.key === "5") selectTool("dot");
-    if (k === "f") {
-      if (state.view === "both") setView("front");
-      else setView(state.view === "front" ? "back" : "both");
-    }
     if (e.key === "+" || e.key === "=") stepRow(1);
     if (e.key === "-") stepRow(-1);
     if (k === "k") setKnitting(!state.knitting);
@@ -1203,7 +1199,7 @@
     rfOf.textContent = rowW + " sts per side" + (rb >= state.bodyRows ? " · tip: decrease 1 each side" : "");
     var sides = viewSides();
     var n = sides.length;
-    var gap = 26, labelH = n > 1 ? 14 : 4, numH = 14;
+    var gap = 0, labelH = n > 1 ? 14 : 4, numH = 14; // sides joined, like the chart
     var stripAvail = document.body.clientWidth - 220; // room for the step buttons and padding
     var cs = Math.max(12, Math.min(46, Math.floor((stripAvail - (n - 1) * gap) / (n * dispW))));
     var bandH = cs + (hasPrev ? cs : 0);
@@ -1287,6 +1283,15 @@
         rowCtx.setLineDash([]);
       }
     });
+
+    // red dividers every 15 stitches on the current row, matching the chart
+    rowCtx.fillStyle = "#9E3229";
+    for (var g = 15; g < 2 * W; g += 15) {
+      var gsi = Math.floor(g / W);
+      var gc = g - gsi * W; // 0 = the join between sides, only visible before the tip
+      if (gsi >= n || gc < inset || gc > W - inset) continue;
+      rowCtx.fillRect(1 + gsi * dispW * cs + (gc - minIns) * cs - 1, labelH, 2, cs);
+    }
   }
 
   function setKnitting(on) {
@@ -1302,21 +1307,6 @@
   document.getElementById("knitMode").addEventListener("click", function () { setKnitting(!state.knitting); });
   document.getElementById("rfPrev").addEventListener("click", function () { stepRow(-1); });
   document.getElementById("rfNext").addEventListener("click", function () { stepRow(1); });
-
-  // ---- views ----
-  function setView(view, skipDraw) {
-    state.view = view;
-    if (view !== "both") state.side = view;
-    document.querySelectorAll(".side-tab").forEach(function (b) {
-      var on = b.dataset.view === view;
-      b.classList.toggle("selected", on);
-      b.setAttribute("aria-selected", on ? "true" : "false");
-    });
-    if (!skipDraw) { draw(); save(); }
-  }
-  document.querySelectorAll(".side-tab").forEach(function (b) {
-    b.addEventListener("click", function () { setView(b.dataset.view); });
-  });
 
   // ---- zoom ----
   function setZoom(z) {
@@ -1377,13 +1367,12 @@
   var mirrorInput = document.getElementById("mirror");
 
   stitchesInput.addEventListener("change", function () {
-    var v = Math.max(9, Math.min(61, Math.round(Number(stitchesInput.value) || 27)));
-    if (v % 2 === 0) v += 1; // odd width keeps a center stitch for symmetric motifs
+    var v = Math.max(9, Math.min(61, Math.round(Number(stitchesInput.value) || 30)));
     stitchesInput.value = v;
     resizeChart(v, state.bodyRows);
   });
   bodyRowsInput.addEventListener("change", function () {
-    var v = Math.max(4, Math.min(90, Math.round(Number(bodyRowsInput.value) || 34)));
+    var v = Math.max(4, Math.min(120, Math.round(Number(bodyRowsInput.value) || 73)));
     bodyRowsInput.value = v;
     resizeChart(state.stitches, v);
   });
@@ -1504,7 +1493,7 @@
 
   // ---- export: PNG (matches the current view: both sides or one) ----
   document.getElementById("download").addEventListener("click", function () {
-    var cs = 24, pad = 24, gap = 36;
+    var cs = 24, pad = 24, gap = 0; // sides joined, like the chart
     var W = state.stitches, R = totalRows(), cuff = state.cuffRows;
     var sides = viewSides();
     var labelPad = sides.length > 1 ? 28 : 0;
@@ -1585,6 +1574,12 @@
           octx.fillText("THUMB", tx + tr.w * cs / 2, ty + cs / 2 + 1);
         }
       }
+    });
+    // red dividers every 15 stitches across the joined round
+    octx.fillStyle = "#9E3229";
+    dividerCols().forEach(function (d) {
+      var yTop = pad + labelPad + (R - 1 - d.topRb) * cs;
+      octx.fillRect(pad + d.g * cs - 1, yTop, 2, pad + labelPad + (R + cuff) * cs - yTop);
     });
     var a = document.createElement("a");
     a.download = "goosyknit-" + (sides.length > 1 ? "both" : sides[0]) + ".png";
@@ -1675,6 +1670,13 @@
     }).join(" ");
     ops.push("0.149 0.133 0.118 RG 1.4 w " + path + " h S");
 
+    // red dividers every 15 stitches, down through the cuff
+    for (var dc = 15; dc < W; dc += 15) {
+      var dTop = Math.min(R - 1, B - 1 + Math.min(dc, W - dc));
+      ops.push("0.62 0.20 0.16 RG 1.2 w " + n2(ox + dc * cs) + " " + n2(baseY) + " m " +
+        n2(ox + dc * cs) + " " + n2(oy + (dTop + 1) * cs) + " l S");
+    }
+
     // symbol marks: slashes and dots on their squares, ink contrasting with the yarn behind
     var mgrid = state.marks[sideKey];
     Object.keys(mgrid).forEach(function (key) {
@@ -1753,8 +1755,8 @@
         return { content: ops.join("\n"), w: pw, h: ph };
       });
     } else {
-      // both sides on one landscape A4 page
-      var lw = 841.89, lh = 595.28, lm = 50, lTitle = 60, gap = 30;
+      // both sides on one landscape A4 page, joined edge to edge
+      var lw = 841.89, lh = 595.28, lm = 50, lTitle = 60, gap = 0;
       var lcs = Math.min((lw - 2 * lm - gap) / (2 * W), (lh - 2 * lm - lTitle) / (R + C));
       var chartW = W * lcs;
       var ox1 = (lw - (2 * chartW + gap)) / 2;
@@ -1767,6 +1769,9 @@
       ops2.push("BT /F1 9 Tf 1 Tc 1 0 0 1 " + n2(ox2) + " " + n2(topY + 8) + " Tm (" +
         pdfEscape(SIDE_LABELS.back.toUpperCase()) + ") Tj ET");
       ops2 = ops2.concat(pdfChartOps("front", ox1, lm, lcs), pdfChartOps("back", ox2, lm, lcs));
+      // red divider on the join between the sides, cuff and body (the tip pulls away from it)
+      ops2.push("0.62 0.20 0.16 RG 1.2 w " + n2(ox2) + " " + n2(lm) + " m " +
+        n2(ox2) + " " + n2(lm + (C + state.bodyRows) * lcs) + " l S");
       pages = [{ content: ops2.join("\n"), w: lw, h: lh }];
     }
 
@@ -1834,7 +1839,6 @@
   syncThumbInputs();
   syncPdfLayout();
   renderSwatches();
-  setView(state.view, true);
   if (state.knitting) setKnitting(true); // reapplies the mode's class and button state, then draws
   else draw();
   window.addEventListener("resize", draw);
