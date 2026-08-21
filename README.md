@@ -13,11 +13,15 @@ the style of a vintage Norwegian pattern leaflet.
   stitch per side per row down to a single stitch.
 - Yarn palette (black, madder red, blue) plus custom colors via a color picker.
 - Tools: knit (paint), erase, and a 15×15 selburose stamp. Keyboard: 1/2/3.
+- Front and back sides: separate charts for the back of the hand and the palm,
+  with tabs showing which side is active (keyboard: F flips).
 - Mirror mode paints both halves symmetrically, as Selbu patterns are.
-- Right-click drag erases; Ctrl+Z undoes per stroke.
+- Right-click drag erases; undo/redo buttons plus Ctrl+Z / Ctrl+Y, per stroke.
+- The whole mitten fits the window by default; zoom in/out/fit controls.
 - Chart conventions: bold gridline every 5 stitches/rows, stitch numbers along
   the bottom (stitch 1 at the right), row numbers up the side.
-- Download the chart as a PNG; work autosaves to the browser's localStorage.
+- Export: PNG of the current side, or a two-page vector PDF of both sides
+  (hand-built in plain JS, no libraries); work autosaves to localStorage.
 
 ## Development
 
