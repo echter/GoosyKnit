@@ -418,8 +418,9 @@
   <main class="chart-card">
     <div class="chart-title">
       <div class="side-tabs" role="tablist" aria-label="Mitten side">
-        <button class="side-tab selected" id="tab-front" data-side="front" role="tab" aria-selected="true">Front &middot; back of hand</button>
-        <button class="side-tab" id="tab-back" data-side="back" role="tab" aria-selected="false">Back &middot; palm</button>
+        <button class="side-tab selected" id="tab-both" data-view="both" role="tab" aria-selected="true">Both sides</button>
+        <button class="side-tab" id="tab-front" data-view="front" role="tab" aria-selected="false">Front &middot; back of hand</button>
+        <button class="side-tab" id="tab-back" data-view="back" role="tab" aria-selected="false">Back &middot; palm</button>
       </div>
       <div class="zoom">
         <button id="zoomOut" aria-label="Zoom out">&minus;</button>
@@ -441,7 +442,7 @@
     </div>
     <div class="chart-foot">
       <span id="counts"></span>
-      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F flips side &middot; +/&minus; steps the row &middot; autosaves</span>
+      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F cycles view &middot; +/&minus; steps the row &middot; autosaves</span>
     </div>
   </main>
 
@@ -477,7 +478,7 @@
           <button class="action" id="undo">Undo <small>&#8963;Z</small></button>
           <button class="action" id="redo">Redo <small>&#8963;Y</small></button>
         </div>
-        <button class="action" id="download">Download PNG <small>side</small></button>
+        <button class="action" id="download">Download PNG <small id="downloadScope">view</small></button>
         <button class="action" id="exportPdf">Export PDF <small>both</small></button>
         <button class="action danger" id="clear">Clear this side</button>
       </div>
@@ -523,7 +524,8 @@
     yarns: DEFAULT_YARNS.slice(),
     activeYarn: 0,
     tool: "paint",
-    side: "front",
+    view: "both", // "both" | "front" | "back"
+    side: "front", // active side for editing/clear/export when a single one matters
     // knit in the round: one current row spans both sides (1-based, 0 = not started)
     currentRow: 1,
     // thumb opening marker, drawn on the palm side only
@@ -541,6 +543,12 @@
   var ctx = canvas.getContext("2d");
   var cellPx = 18;
   var RULER = 26; // px reserved for stitch/row numbers
+  var GAP = 28;   // px between the two charts in both-sides view
+  var LABEL_H = 18; // px above each chart for its caption in both-sides view
+
+  function viewSides() {
+    return state.view === "both" ? ["front", "back"] : [state.side];
+  }
 
   function cells() { return state.sides[state.side]; }
   function tipRows() { return Math.floor((state.stitches - 1) / 2); }
@@ -580,6 +588,7 @@
         mirror: state.mirror,
         yarns: state.yarns,
         activeYarn: state.activeYarn,
+        view: state.view,
         side: state.side,
         currentRow: state.currentRow,
         thumb: state.thumb,
@@ -604,6 +613,7 @@
         state.sides.front = d.cells; // older save format had a single chart
       }
       if (d.side === "front" || d.side === "back") state.side = d.side;
+      if (d.view === "both" || d.view === "front" || d.view === "back") state.view = d.view;
       if (typeof d.currentRow === "number") state.currentRow = d.currentRow;
       if (d.thumb && typeof d.thumb === "object") {
         ["show", "width", "row", "side", "inset"].forEach(function (k) {
@@ -616,13 +626,16 @@
   // ---- drawing ----
   function fitCellSize() {
     var W = state.stitches, R = totalRows();
+    var n = viewSides().length;
     // side panels sit left and right of the chart above 1100px, stacked below it otherwise
     var panelSpace = window.matchMedia("(min-width: 1101px)").matches ? 2 * (250 + 24) : 0;
-    var availW = Math.min(document.body.clientWidth - 40 - panelSpace, 920) - RULER - 44 - 52; /* 52: row tracker */
+    var maxW = n > 1 ? 1200 : 920;
+    var availW = Math.min(document.body.clientWidth - 40 - panelSpace, maxW) - RULER - 44 - 52 /* 52: row tracker */
+      - (n - 1) * GAP;
     var card = document.querySelector(".chart-card");
-    var availH = window.innerHeight - card.offsetTop - 150 - RULER;
+    var availH = window.innerHeight - card.offsetTop - 150 - RULER - (n > 1 ? LABEL_H : 0);
     if (availH < 160) availH = 160;
-    var fit = Math.min(availW / W, availH / R);
+    var fit = Math.min(availW / (n * W), availH / R);
     cellPx = Math.max(4, Math.min(44, Math.floor(fit * zoom)));
     document.getElementById("zoomPct").textContent = Math.round(zoom * 100) + "%";
   }
@@ -630,8 +643,12 @@
   function draw() {
     fitCellSize();
     var W = state.stitches, R = totalRows();
-    var cssW = W * cellPx + RULER + 2;
-    var cssH = R * cellPx + RULER + 2;
+    var sides = viewSides();
+    var n = sides.length;
+    var labelH = n > 1 ? LABEL_H : 0;
+    var chartW = W * cellPx;
+    var cssW = n * chartW + (n - 1) * GAP + RULER + 2;
+    var cssH = R * cellPx + RULER + 2 + labelH;
     var dpr = window.devicePixelRatio || 1;
     canvas.width = cssW * dpr;
     canvas.height = cssH * dpr;
@@ -640,110 +657,137 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
 
-    var ox = 1, oy = 1;
-    var grid = cells();
+    var oy = 1 + labelH;
 
-    for (var rTop = 0; rTop < R; rTop++) {
-      var rb = R - 1 - rTop; // row counted from the bottom
-      for (var c = 0; c < W; c++) {
-        if (!inShape(rb, c)) continue;
-        var color = grid[rb + "," + c] || WOOL_WHITE;
-        ctx.fillStyle = color;
-        ctx.fillRect(ox + c * cellPx, oy + rTop * cellPx, cellPx, cellPx);
+    sides.forEach(function (sideKey, si) {
+      var ox = 1 + si * (chartW + GAP);
+      var grid = state.sides[sideKey];
+
+      // caption above each chart in both-sides view
+      if (n > 1) {
+        ctx.fillStyle = "rgba(38,34,30,0.7)";
+        ctx.font = "600 10px 'Jost', sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "alphabetic";
+        ctx.fillText(sideKey === "front" ? "FRONT · BACK OF HAND" : "BACK · PALM", ox + chartW / 2, 12);
       }
-    }
 
-    // grid lines clipped to the mitten shape; every 5th line heavier, chart-style
-    for (rTop = 0; rTop < R; rTop++) {
-      var rb2 = R - 1 - rTop;
-      var inset = insetFor(rb2);
-      var x0 = ox + inset * cellPx;
-      var x1 = ox + (W - inset) * cellPx;
-      var y0 = oy + rTop * cellPx;
-      for (var cc = inset; cc <= W - inset; cc++) {
-        var heavy = (cc === inset || cc === W - inset || (cc % 5 === 0 && cc > inset && cc < W - inset));
-        ctx.fillStyle = heavy ? "rgba(38,34,30,0.55)" : "rgba(38,34,30,0.18)";
-        ctx.fillRect(ox + cc * cellPx - 0.5, y0, 1, cellPx);
-      }
-      var rowHeavy = (rb2 % 5 === 0) || rb2 === 0;
-      ctx.fillStyle = rowHeavy ? "rgba(38,34,30,0.55)" : "rgba(38,34,30,0.18)";
-      ctx.fillRect(x0, y0 - 0.5, x1 - x0, 1);
-      if (rTop === R - 1) {
-        ctx.fillStyle = "rgba(38,34,30,0.55)";
-        ctx.fillRect(x0, y0 + cellPx - 0.5, x1 - x0, 1);
-      }
-    }
-
-    // outline of the whole mitten
-    ctx.strokeStyle = "#26221E";
-    ctx.lineWidth = 1.5;
-    ctx.stroke(shapePath(ox, oy, cellPx));
-
-    // thumb opening marker, palm side only
-    if (state.side === "back" && state.thumb.show) {
-      var tr = thumbRect();
-      if (tr) {
-        var tx = ox + tr.c0 * cellPx;
-        var ty = oy + (R - 1 - tr.rb) * cellPx;
-        ctx.fillStyle = "rgba(158,50,41,0.14)";
-        ctx.fillRect(tx, ty, tr.w * cellPx, cellPx);
-        ctx.strokeStyle = "#9E3229";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([5, 3]);
-        ctx.strokeRect(tx + 1, ty + 1, tr.w * cellPx - 2, cellPx - 2);
-        ctx.setLineDash([]);
-        if (cellPx >= 9 && tr.w * cellPx >= 46) {
-          ctx.fillStyle = "#9E3229";
-          ctx.font = "600 " + Math.min(11, cellPx - 1) + "px 'Jost', sans-serif";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText("THUMB", tx + tr.w * cellPx / 2, ty + cellPx / 2 + 0.5);
-          ctx.textAlign = "left";
+      for (var rTop = 0; rTop < R; rTop++) {
+        var rb = R - 1 - rTop; // row counted from the bottom
+        for (var c = 0; c < W; c++) {
+          if (!inShape(rb, c)) continue;
+          var color = grid[rb + "," + c] || WOOL_WHITE;
+          ctx.fillStyle = color;
+          ctx.fillRect(ox + c * cellPx, oy + rTop * cellPx, cellPx, cellPx);
         }
       }
-    }
 
-    // highlight the row currently on the needles
-    if (state.currentRow >= 1 && state.currentRow <= R) {
-      var hrb = state.currentRow - 1;
-      var hIns = insetFor(hrb);
-      var hy = oy + (R - 1 - hrb) * cellPx;
-      ctx.strokeStyle = "#9E3229";
-      ctx.lineWidth = 2;
-      ctx.strokeRect(ox + hIns * cellPx + 1, hy + 1, (W - 2 * hIns) * cellPx - 2, cellPx - 2);
-      // arrow marker in the right ruler pointing at the row
-      ctx.fillStyle = "#9E3229";
-      ctx.beginPath();
-      ctx.moveTo(ox + W * cellPx + 14, hy + cellPx / 2);
-      ctx.lineTo(ox + W * cellPx + 21, hy + cellPx / 2 - 4);
-      ctx.lineTo(ox + W * cellPx + 21, hy + cellPx / 2 + 4);
-      ctx.closePath();
-      ctx.fill();
-    }
+      // grid lines clipped to the mitten shape; every 5th line heavier, chart-style
+      for (rTop = 0; rTop < R; rTop++) {
+        var rb2 = R - 1 - rTop;
+        var inset = insetFor(rb2);
+        var x0 = ox + inset * cellPx;
+        var x1 = ox + (W - inset) * cellPx;
+        var y0 = oy + rTop * cellPx;
+        for (var cc = inset; cc <= W - inset; cc++) {
+          var heavy = (cc === inset || cc === W - inset || (cc % 5 === 0 && cc > inset && cc < W - inset));
+          ctx.fillStyle = heavy ? "rgba(38,34,30,0.55)" : "rgba(38,34,30,0.18)";
+          ctx.fillRect(ox + cc * cellPx - 0.5, y0, 1, cellPx);
+        }
+        var rowHeavy = (rb2 % 5 === 0) || rb2 === 0;
+        ctx.fillStyle = rowHeavy ? "rgba(38,34,30,0.55)" : "rgba(38,34,30,0.18)";
+        ctx.fillRect(x0, y0 - 0.5, x1 - x0, 1);
+        if (rTop === R - 1) {
+          ctx.fillStyle = "rgba(38,34,30,0.55)";
+          ctx.fillRect(x0, y0 + cellPx - 0.5, x1 - x0, 1);
+        }
+      }
+
+      // outline of the whole mitten
+      ctx.strokeStyle = "#26221E";
+      ctx.lineWidth = 1.5;
+      ctx.stroke(shapePath(ox, oy, cellPx));
+
+      // thumb opening marker, palm side only
+      if (sideKey === "back" && state.thumb.show) {
+        var tr = thumbRect();
+        if (tr) {
+          var tx = ox + tr.c0 * cellPx;
+          var ty = oy + (R - 1 - tr.rb) * cellPx;
+          ctx.fillStyle = "rgba(158,50,41,0.14)";
+          ctx.fillRect(tx, ty, tr.w * cellPx, cellPx);
+          ctx.strokeStyle = "#9E3229";
+          ctx.lineWidth = 2;
+          ctx.setLineDash([5, 3]);
+          ctx.strokeRect(tx + 1, ty + 1, tr.w * cellPx - 2, cellPx - 2);
+          ctx.setLineDash([]);
+          if (cellPx >= 9 && tr.w * cellPx >= 46) {
+            ctx.fillStyle = "#9E3229";
+            ctx.font = "600 " + Math.min(11, cellPx - 1) + "px 'Jost', sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText("THUMB", tx + tr.w * cellPx / 2, ty + cellPx / 2 + 0.5);
+            ctx.textAlign = "left";
+          }
+        }
+      }
+
+      // highlight the row currently on the needles (spans both sides in the round)
+      if (state.currentRow >= 1 && state.currentRow <= R) {
+        var hrb = state.currentRow - 1;
+        var hIns = insetFor(hrb);
+        var hy = oy + (R - 1 - hrb) * cellPx;
+        ctx.strokeStyle = "#9E3229";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(ox + hIns * cellPx + 1, hy + 1, (W - 2 * hIns) * cellPx - 2, cellPx - 2);
+        if (si === n - 1) {
+          // arrow marker in the right ruler pointing at the row
+          ctx.fillStyle = "#9E3229";
+          ctx.beginPath();
+          ctx.moveTo(ox + W * cellPx + 14, hy + cellPx / 2);
+          ctx.lineTo(ox + W * cellPx + 21, hy + cellPx / 2 - 4);
+          ctx.lineTo(ox + W * cellPx + 21, hy + cellPx / 2 + 4);
+          ctx.closePath();
+          ctx.fill();
+        }
+      }
+    });
+
     var rowNumEl = document.getElementById("rowNum");
     rowNumEl.textContent = state.currentRow >= 1 ? String(state.currentRow) : "—";
     rowNumEl.classList.toggle("active", state.currentRow >= 1);
 
-    // rulers: stitch numbers along the bottom, row numbers up the right side
+    // rulers: stitch numbers along the bottom of each chart, row numbers up the right side
     ctx.fillStyle = "rgba(38,34,30,0.7)";
     ctx.font = "500 " + Math.max(8, Math.min(11, cellPx - 6)) + "px 'IBM Plex Mono', monospace";
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    for (var s = 5; s <= W; s += 5) {
-      // stitch 1 is at the right edge, chart convention
-      ctx.fillText(String(s), ox + (W - s) * cellPx + cellPx / 2, oy + R * cellPx + 6);
-    }
+    sides.forEach(function (_, si) {
+      var ox = 1 + si * (chartW + GAP);
+      for (var s = 5; s <= W; s += 5) {
+        // stitch 1 is at the right edge, chart convention
+        ctx.fillText(String(s), ox + (W - s) * cellPx + cellPx / 2, oy + R * cellPx + 6);
+      }
+    });
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
+    var lastOx = 1 + (n - 1) * (chartW + GAP);
     for (var rn = 5; rn <= R; rn += 5) {
       var yy = oy + (R - rn) * cellPx + cellPx / 2;
-      ctx.fillText(String(rn), ox + W * cellPx + 6, yy);
+      ctx.fillText(String(rn), lastOx + W * cellPx + 6, yy);
     }
 
     document.getElementById("counts").textContent =
-      (state.side === "front" ? "front" : "back") + " · " +
+      (state.view === "both" ? "front + back" : (state.side === "front" ? "front" : "back")) + " · " +
       W + " sts × " + R + " rows (tip " + tipRows() + ")";
+    updateActionLabels();
     updateHistoryButtons();
+  }
+
+  function updateActionLabels() {
+    document.getElementById("downloadScope").textContent = state.view === "both" ? "both" : "side";
+    document.getElementById("clear").textContent =
+      "Clear " + (state.side === "front" ? "front" : "back") + " chart";
   }
 
   function shapePath(ox, oy, cs) {
@@ -789,11 +833,15 @@
   function cellFromEvent(ev) {
     var rect = canvas.getBoundingClientRect();
     var scale = rect.width > 0 ? (parseFloat(canvas.style.width) / rect.width) : 1;
+    var sides = viewSides();
+    var labelH = sides.length > 1 ? LABEL_H : 0;
     var x = (ev.clientX - rect.left) * scale - 1;
-    var y = (ev.clientY - rect.top) * scale - 1;
-    var col = Math.floor(x / cellPx);
+    var y = (ev.clientY - rect.top) * scale - 1 - labelH;
+    var chartW = state.stitches * cellPx;
+    var i = Math.max(0, Math.min(sides.length - 1, Math.floor(x / (chartW + GAP))));
+    var col = Math.floor((x - i * (chartW + GAP)) / cellPx);
     var rTop = Math.floor(y / cellPx);
-    return { rb: totalRows() - 1 - rTop, col: col };
+    return { side: sides[i], rb: totalRows() - 1 - rTop, col: col };
   }
 
   var painting = false;
@@ -805,8 +853,9 @@
   canvas.addEventListener("pointerdown", function (e) {
     e.preventDefault();
     canvas.setPointerCapture(e.pointerId);
-    currentStroke = { side: state.side, changes: [] };
     var cell = cellFromEvent(e);
+    state.side = cell.side; // in both-sides view, the mitten you touch becomes the active side
+    currentStroke = { side: cell.side, changes: [] };
     painting = true;
     erasingDrag = (e.button === 2);
     lastCell = cell;
@@ -817,6 +866,7 @@
   canvas.addEventListener("pointermove", function (e) {
     if (!painting) return;
     var cell = cellFromEvent(e);
+    if (currentStroke && cell.side !== currentStroke.side) return; // a stroke stays on one mitten
     if (lastCell && cell.rb === lastCell.rb && cell.col === lastCell.col) return;
     // interpolate so fast drags leave no gaps
     var steps = Math.max(Math.abs(cell.rb - lastCell.rb), Math.abs(cell.col - lastCell.col));
@@ -864,7 +914,8 @@
   }
 
   function showSideOf(stroke) {
-    if (stroke.side !== state.side) setSide(stroke.side, true);
+    state.side = stroke.side;
+    if (state.view !== "both" && state.view !== stroke.side) setView(stroke.side, true);
   }
 
   function undo() {
@@ -902,7 +953,10 @@
     if (e.target.tagName === "INPUT") return;
     if (e.key === "1") selectTool("paint");
     if (e.key === "2") selectTool("erase");
-    if (k === "f") setSide(state.side === "front" ? "back" : "front");
+    if (k === "f") {
+      if (state.view === "both") setView("front");
+      else setView(state.view === "front" ? "back" : "both");
+    }
     if (e.key === "+" || e.key === "=") stepRow(1);
     if (e.key === "-") stepRow(-1);
   });
@@ -915,18 +969,19 @@
   document.getElementById("rowUp").addEventListener("click", function () { stepRow(1); });
   document.getElementById("rowDown").addEventListener("click", function () { stepRow(-1); });
 
-  // ---- sides ----
-  function setSide(side, skipDraw) {
-    state.side = side;
+  // ---- views ----
+  function setView(view, skipDraw) {
+    state.view = view;
+    if (view !== "both") state.side = view;
     document.querySelectorAll(".side-tab").forEach(function (b) {
-      var on = b.dataset.side === side;
+      var on = b.dataset.view === view;
       b.classList.toggle("selected", on);
       b.setAttribute("aria-selected", on ? "true" : "false");
     });
     if (!skipDraw) { draw(); save(); }
   }
   document.querySelectorAll(".side-tab").forEach(function (b) {
-    b.addEventListener("click", function () { setSide(b.dataset.side); });
+    b.addEventListener("click", function () { setView(b.dataset.view); });
   });
 
   // ---- zoom ----
@@ -1085,52 +1140,65 @@
     draw(); save();
   });
 
-  // ---- export: PNG (current side) ----
+  // ---- export: PNG (matches the current view: both sides or one) ----
   document.getElementById("download").addEventListener("click", function () {
-    var cs = 24, pad = 24;
+    var cs = 24, pad = 24, gap = 36;
     var W = state.stitches, R = totalRows();
+    var sides = viewSides();
+    var labelPad = sides.length > 1 ? 28 : 0;
     var out = document.createElement("canvas");
-    out.width = W * cs + pad * 2;
-    out.height = R * cs + pad * 2;
+    out.width = sides.length * W * cs + (sides.length - 1) * gap + pad * 2;
+    out.height = R * cs + pad * 2 + labelPad;
     var octx = out.getContext("2d");
     octx.fillStyle = "#FFFFFF";
     octx.fillRect(0, 0, out.width, out.height);
-    var grid = cells();
-    for (var rTop = 0; rTop < R; rTop++) {
-      var rb = R - 1 - rTop;
-      for (var c = 0; c < W; c++) {
-        if (!inShape(rb, c)) continue;
-        octx.fillStyle = grid[rb + "," + c] || WOOL_WHITE;
-        octx.fillRect(pad + c * cs, pad + rTop * cs, cs, cs);
-        octx.strokeStyle = "rgba(38,34,30,0.25)";
-        octx.lineWidth = 1;
-        octx.strokeRect(pad + c * cs + 0.5, pad + rTop * cs + 0.5, cs - 1, cs - 1);
-      }
-    }
-    octx.strokeStyle = "#26221E";
-    octx.lineWidth = 2;
-    octx.stroke(shapePath(pad, pad, cs));
-    if (state.side === "back" && state.thumb.show) {
-      var tr = thumbRect();
-      if (tr) {
-        var tx = pad + tr.c0 * cs;
-        var ty = pad + (R - 1 - tr.rb) * cs;
-        octx.fillStyle = "rgba(158,50,41,0.14)";
-        octx.fillRect(tx, ty, tr.w * cs, cs);
-        octx.strokeStyle = "#9E3229";
-        octx.lineWidth = 2;
-        octx.setLineDash([6, 4]);
-        octx.strokeRect(tx + 1, ty + 1, tr.w * cs - 2, cs - 2);
-        octx.setLineDash([]);
-        octx.fillStyle = "#9E3229";
+    sides.forEach(function (sideKey, i) {
+      var ox = pad + i * (W * cs + gap);
+      var oy = pad + labelPad;
+      var grid = state.sides[sideKey];
+      if (labelPad) {
+        octx.fillStyle = "#26221E";
         octx.font = "600 14px 'Jost', sans-serif";
         octx.textAlign = "center";
-        octx.textBaseline = "middle";
-        octx.fillText("THUMB", tx + tr.w * cs / 2, ty + cs / 2 + 1);
+        octx.textBaseline = "alphabetic";
+        octx.fillText(sideKey === "front" ? "FRONT · BACK OF HAND" : "BACK · PALM", ox + W * cs / 2, pad + 8);
       }
-    }
+      for (var rTop = 0; rTop < R; rTop++) {
+        var rb = R - 1 - rTop;
+        for (var c = 0; c < W; c++) {
+          if (!inShape(rb, c)) continue;
+          octx.fillStyle = grid[rb + "," + c] || WOOL_WHITE;
+          octx.fillRect(ox + c * cs, oy + rTop * cs, cs, cs);
+          octx.strokeStyle = "rgba(38,34,30,0.25)";
+          octx.lineWidth = 1;
+          octx.strokeRect(ox + c * cs + 0.5, oy + rTop * cs + 0.5, cs - 1, cs - 1);
+        }
+      }
+      octx.strokeStyle = "#26221E";
+      octx.lineWidth = 2;
+      octx.stroke(shapePath(ox, oy, cs));
+      if (sideKey === "back" && state.thumb.show) {
+        var tr = thumbRect();
+        if (tr) {
+          var tx = ox + tr.c0 * cs;
+          var ty = oy + (R - 1 - tr.rb) * cs;
+          octx.fillStyle = "rgba(158,50,41,0.14)";
+          octx.fillRect(tx, ty, tr.w * cs, cs);
+          octx.strokeStyle = "#9E3229";
+          octx.lineWidth = 2;
+          octx.setLineDash([6, 4]);
+          octx.strokeRect(tx + 1, ty + 1, tr.w * cs - 2, cs - 2);
+          octx.setLineDash([]);
+          octx.fillStyle = "#9E3229";
+          octx.font = "600 14px 'Jost', sans-serif";
+          octx.textAlign = "center";
+          octx.textBaseline = "middle";
+          octx.fillText("THUMB", tx + tr.w * cs / 2, ty + cs / 2 + 1);
+        }
+      }
+    });
     var a = document.createElement("a");
-    a.download = "goosyknit-" + state.side + ".png";
+    a.download = "goosyknit-" + (sides.length > 1 ? "both" : sides[0]) + ".png";
     a.href = out.toDataURL("image/png");
     a.click();
   });
@@ -1297,7 +1365,7 @@
   mirrorInput.checked = state.mirror;
   syncThumbInputs();
   renderSwatches();
-  setSide(state.side, true);
+  setView(state.view, true);
   draw();
   window.addEventListener("resize", draw);
 })();
