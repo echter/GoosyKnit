@@ -303,6 +303,71 @@
     letter-spacing: 0.04em;
   }
 
+  /* ---- knitting mode: strip away the editing tools, enlarge the chart ---- */
+  body.knitting header,
+  body.knitting footer,
+  body.knitting .panel,
+  body.knitting .chart-foot,
+  body.knitting .zoom,
+  body.knitting .row-tracker { display: none; }
+  body.knitting .workshop { padding: 0.8rem 0.8rem 1.2rem; }
+  body.knitting .chart-card { width: 100%; }
+
+  .knit-toggle {
+    font-family: "Jost", sans-serif;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    padding: 0.4rem 0.8rem;
+    background: transparent;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .knit-toggle:hover { background: var(--ink); color: var(--card); }
+  .knit-toggle.selected { background: var(--red); border-color: var(--red); color: var(--wool-white); }
+
+  .row-focus {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    border: 1px solid var(--ink);
+    background: var(--wool-white);
+    box-shadow: 2px 2px 0 rgba(38, 34, 30, 0.12);
+    padding: 0.6rem 0.9rem;
+    margin-bottom: 1rem;
+  }
+  .rf-step {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 1.5rem;
+    width: 54px;
+    height: 54px;
+    flex-shrink: 0;
+    background: var(--card);
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    cursor: pointer;
+  }
+  .rf-step:hover { background: var(--ink); color: var(--card); }
+  .rf-mid { flex: 1; min-width: 0; }
+  .rf-info {
+    display: flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    margin-bottom: 0.4rem;
+  }
+  #rfRow {
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--red);
+  }
+  #rfOf { font-size: 0.85rem; color: var(--ink-soft); letter-spacing: 0.06em; }
+  .rf-scroll { overflow-x: auto; }
+  #rowCanvas { display: block; }
+
   footer {
     text-align: center;
     padding: 0 1rem 2rem;
@@ -432,6 +497,15 @@
         <button id="zoomIn" aria-label="Zoom in">+</button>
         <button id="zoomFit" class="zoom-fit" aria-label="Fit whole mitten in view">Fit</button>
       </div>
+      <button class="knit-toggle" id="knitMode" aria-pressed="false">Knitting mode</button>
+    </div>
+    <div class="row-focus" id="rowFocus" hidden>
+      <button class="rf-step" id="rfPrev" aria-label="Previous row">&minus;</button>
+      <div class="rf-mid">
+        <div class="rf-info"><span id="rfRow"></span><span id="rfOf"></span></div>
+        <div class="rf-scroll"><canvas id="rowCanvas"></canvas></div>
+      </div>
+      <button class="rf-step" id="rfNext" aria-label="Next row">+</button>
     </div>
     <div class="chart-body">
       <div class="chart-scroll" id="chartScroll">
@@ -446,7 +520,7 @@
     </div>
     <div class="chart-foot">
       <span id="counts"></span>
-      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F cycles view &middot; +/&minus; steps the row &middot; autosaves</span>
+      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F cycles view &middot; +/&minus; steps the row &middot; K knitting mode &middot; autosaves</span>
     </div>
   </main>
 
@@ -540,6 +614,8 @@
     side: "front", // active side for editing/clear/export when a single one matters
     // knit in the round: one current row spans both sides (1-based, 0 = not started)
     currentRow: 1,
+    // knitting mode: tools hidden, chart enlarged, current row shown magnified
+    knitting: false,
     // thumb opening marker, drawn on the palm side only
     thumb: { show: true, width: 9, row: 12, side: "right", inset: 1 },
     // PDF export layout: "side" = both charts on one landscape page, "pages" = one portrait page each
@@ -606,6 +682,7 @@
         view: state.view,
         side: state.side,
         currentRow: state.currentRow,
+        knitting: state.knitting,
         thumb: state.thumb,
         pdfLayout: state.pdfLayout,
         sides: state.sides
@@ -632,6 +709,7 @@
       if (d.side === "front" || d.side === "back") state.side = d.side;
       if (d.view === "both" || d.view === "front" || d.view === "back") state.view = d.view;
       if (typeof d.currentRow === "number") state.currentRow = d.currentRow;
+      if (typeof d.knitting === "boolean") state.knitting = d.knitting;
       if (d.pdfLayout === "side" || d.pdfLayout === "pages") state.pdfLayout = d.pdfLayout;
       if (d.thumb && typeof d.thumb === "object") {
         ["show", "width", "row", "side", "inset"].forEach(function (k) {
@@ -645,13 +723,16 @@
   function fitCellSize() {
     var W = state.stitches, R = totalRows();
     var n = viewSides().length;
+    var knit = state.knitting;
     // side panels sit left and right of the chart above 1100px, stacked below it otherwise
-    var panelSpace = window.matchMedia("(min-width: 1101px)").matches ? 2 * (250 + 24) : 0;
-    var maxW = n > 1 ? 1200 : 920;
-    var availW = Math.min(document.body.clientWidth - 40 - panelSpace, maxW) - RULER - 44 - 52 /* 52: row tracker */
+    var panelSpace = !knit && window.matchMedia("(min-width: 1101px)").matches ? 2 * (250 + 24) : 0;
+    var maxW = knit ? document.body.clientWidth : (n > 1 ? 1200 : 920);
+    var availW = Math.min(document.body.clientWidth - 40 - panelSpace, maxW) - RULER - 44 - (knit ? 0 : 52) /* 52: row tracker */
       - (n - 1) * GAP;
     var card = document.querySelector(".chart-card");
-    var availH = window.innerHeight - card.offsetTop - 150 - RULER - (n > 1 ? LABEL_H : 0);
+    var rowFocusEl = document.getElementById("rowFocus");
+    var focusH = knit && !rowFocusEl.hidden ? (rowFocusEl.offsetHeight || 110) + 16 : 0;
+    var availH = window.innerHeight - card.offsetTop - (knit ? 80 : 150) - focusH - RULER - (n > 1 ? LABEL_H : 0);
     if (availH < 160) availH = 160;
     var fit = Math.min(availW / (n * W), availH / (R + state.cuffRows));
     cellPx = Math.max(4, Math.min(44, Math.floor(fit * zoom)));
@@ -659,6 +740,7 @@
   }
 
   function draw() {
+    drawRowFocus(); // before fitCellSize: the strip's height changes the room left for the chart
     fitCellSize();
     var W = state.stitches, R = totalRows();
     var sides = viewSides();
@@ -996,6 +1078,8 @@
     }
     if (e.key === "+" || e.key === "=") stepRow(1);
     if (e.key === "-") stepRow(-1);
+    if (k === "k") setKnitting(!state.knitting);
+    if (e.key === "Escape" && state.knitting) setKnitting(false);
   });
 
   // ---- knitting row tracker ----
@@ -1005,6 +1089,105 @@
   }
   document.getElementById("rowUp").addEventListener("click", function () { stepRow(1); });
   document.getElementById("rowDown").addEventListener("click", function () { stepRow(-1); });
+
+  // ---- knitting mode ----
+  var rowCanvas = document.getElementById("rowCanvas");
+  var rowCtx = rowCanvas.getContext("2d");
+
+  // Magnified strip of the row currently on the needles.
+  function drawRowFocus() {
+    var strip = document.getElementById("rowFocus");
+    if (!state.knitting) { strip.hidden = true; return; }
+    strip.hidden = false;
+    var W = state.stitches, R = totalRows();
+    var rfRow = document.getElementById("rfRow");
+    var rfOf = document.getElementById("rfOf");
+    if (state.currentRow < 1) {
+      rfRow.textContent = "Ribbekant";
+      rfOf.textContent = state.cuffRows > 0
+        ? state.cuffRows + " cuff rows (knit 1, purl 1), then + starts row 1"
+        : "cast on, then + starts row 1";
+      rowCanvas.style.display = "none";
+      return;
+    }
+    rowCanvas.style.display = "block";
+    var rb = state.currentRow - 1;
+    var inset = insetFor(rb);
+    var rowW = W - 2 * inset;
+    rfRow.textContent = "Row " + state.currentRow + " of " + R;
+    rfOf.textContent = rowW + " sts per side" + (rb >= state.bodyRows ? " · tip: decrease 1 each side" : "");
+    var sides = viewSides();
+    var n = sides.length;
+    var gap = 26, labelH = n > 1 ? 14 : 4, numH = 14;
+    var stripAvail = document.body.clientWidth - 220; // room for the step buttons and padding
+    var cs = Math.max(12, Math.min(46, Math.floor((stripAvail - (n - 1) * gap) / (n * rowW))));
+    var cssW = n * rowW * cs + (n - 1) * gap + 2;
+    var cssH = labelH + cs + numH + 2;
+    var dpr = window.devicePixelRatio || 1;
+    rowCanvas.width = cssW * dpr;
+    rowCanvas.height = cssH * dpr;
+    rowCanvas.style.width = cssW + "px";
+    rowCanvas.style.height = cssH + "px";
+    rowCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    rowCtx.clearRect(0, 0, cssW, cssH);
+
+    var tr = thumbRect();
+    sides.forEach(function (sideKey, si) {
+      var ox = 1 + si * (rowW * cs + gap);
+      var oy = labelH;
+      if (n > 1) {
+        rowCtx.fillStyle = "rgba(38,34,30,0.7)";
+        rowCtx.font = "600 10px 'Jost', sans-serif";
+        rowCtx.textAlign = "left";
+        rowCtx.textBaseline = "alphabetic";
+        rowCtx.fillText(sideKey === "front" ? "FRONT" : "PALM", ox, 10);
+      }
+      var grid = state.sides[sideKey];
+      for (var c = inset; c < W - inset; c++) {
+        rowCtx.fillStyle = grid[rb + "," + c] || WOOL_WHITE;
+        rowCtx.fillRect(ox + (c - inset) * cs, oy, cs, cs);
+      }
+      // vertical lines, heavier every 5 stitches counted from the right (chart convention)
+      for (var b = 0; b <= rowW; b++) {
+        rowCtx.fillStyle = (b === 0 || b === rowW || (rowW - b) % 5 === 0)
+          ? "rgba(38,34,30,0.6)" : "rgba(38,34,30,0.2)";
+        rowCtx.fillRect(ox + b * cs - 0.5, oy, 1, cs);
+      }
+      rowCtx.fillStyle = "rgba(38,34,30,0.6)";
+      rowCtx.fillRect(ox, oy - 0.5, rowW * cs, 1);
+      rowCtx.fillRect(ox, oy + cs - 0.5, rowW * cs, 1);
+      // stitch counts below, every 5 from the right
+      rowCtx.fillStyle = "rgba(38,34,30,0.7)";
+      rowCtx.font = "500 9px 'IBM Plex Mono', monospace";
+      rowCtx.textAlign = "center";
+      rowCtx.textBaseline = "top";
+      for (var s = 5; s <= rowW; s += 5) {
+        rowCtx.fillText(String(s), ox + (rowW - s) * cs + cs / 2, oy + cs + 3);
+      }
+      // thumb opening, palm side, when it sits on this row
+      if (sideKey === "back" && state.thumb.show && tr && tr.rb === rb) {
+        rowCtx.strokeStyle = "#9E3229";
+        rowCtx.lineWidth = 2;
+        rowCtx.setLineDash([5, 3]);
+        rowCtx.strokeRect(ox + (tr.c0 - inset) * cs + 1, oy + 1, tr.w * cs - 2, cs - 2);
+        rowCtx.setLineDash([]);
+      }
+    });
+  }
+
+  function setKnitting(on) {
+    state.knitting = on;
+    document.body.classList.toggle("knitting", on);
+    var btn = document.getElementById("knitMode");
+    btn.classList.toggle("selected", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.textContent = on ? "Exit knitting" : "Knitting mode";
+    if (on) zoom = 1; // the chart auto-fits the freed-up space
+    draw(); save();
+  }
+  document.getElementById("knitMode").addEventListener("click", function () { setKnitting(!state.knitting); });
+  document.getElementById("rfPrev").addEventListener("click", function () { stepRow(-1); });
+  document.getElementById("rfNext").addEventListener("click", function () { stepRow(1); });
 
   // ---- views ----
   function setView(view, skipDraw) {
@@ -1490,7 +1673,8 @@
   syncPdfLayout();
   renderSwatches();
   setView(state.view, true);
-  draw();
+  if (state.knitting) setKnitting(true); // reapplies the mode's class and button state, then draws
+  else draw();
   window.addEventListener("resize", draw);
 })();
 </script>
