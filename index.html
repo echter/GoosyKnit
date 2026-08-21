@@ -326,7 +326,7 @@
     cursor: pointer;
     z-index: 10;
   }
-  #gooseSvg { width: 52px; height: 52px; display: block; }
+  #gooseSvg { width: 62px; height: 62px; display: block; }
   #goose:hover #gooseSvg { transform: rotate(-4deg); }
   #goose.honking #gooseSvg { animation: waddle 0.5s ease; }
   @keyframes waddle {
@@ -369,9 +369,10 @@
     #goose:hover #gooseSvg { transform: none; }
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 1100px) {
     .workshop { flex-direction: column; align-items: stretch; }
     .panel { width: 100%; }
+    .chart-card { order: -1; } /* chart first when panels stack */
     .swatch, .swatch-add { width: 40px; height: 40px; }
   }
 </style>
@@ -412,7 +413,39 @@
       </div>
       <label class="check"><input type="checkbox" id="mirror"> Mirror left &harr; right</label>
     </section>
+  </aside>
 
+  <main class="chart-card">
+    <div class="chart-title">
+      <div class="side-tabs" role="tablist" aria-label="Mitten side">
+        <button class="side-tab selected" id="tab-front" data-side="front" role="tab" aria-selected="true">Front &middot; back of hand</button>
+        <button class="side-tab" id="tab-back" data-side="back" role="tab" aria-selected="false">Back &middot; palm</button>
+      </div>
+      <div class="zoom">
+        <button id="zoomOut" aria-label="Zoom out">&minus;</button>
+        <span id="zoomPct">100%</span>
+        <button id="zoomIn" aria-label="Zoom in">+</button>
+        <button id="zoomFit" class="zoom-fit" aria-label="Fit whole mitten in view">Fit</button>
+      </div>
+    </div>
+    <div class="chart-body">
+      <div class="chart-scroll" id="chartScroll">
+        <canvas id="chart"></canvas>
+      </div>
+      <div class="row-tracker" aria-label="Current knitting row">
+        <span class="rt-label">Row</span>
+        <button id="rowUp" title="Next row (+)">+</button>
+        <span id="rowNum">&mdash;</span>
+        <button id="rowDown" title="Previous row (&minus;)">&minus;</button>
+      </div>
+    </div>
+    <div class="chart-foot">
+      <span id="counts"></span>
+      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F flips side &middot; +/&minus; steps the row &middot; autosaves</span>
+    </div>
+  </main>
+
+  <aside class="panel">
     <section>
       <h2>Thumb &middot; palm side</h2>
       <label class="check" style="margin-bottom:0.55rem"><input type="checkbox" id="thumbShow" checked> Mark thumb opening</label>
@@ -450,43 +483,28 @@
       </div>
     </section>
   </aside>
-
-  <main class="chart-card">
-    <div class="chart-title">
-      <div class="side-tabs" role="tablist" aria-label="Mitten side">
-        <button class="side-tab selected" id="tab-front" data-side="front" role="tab" aria-selected="true">Front &middot; back of hand</button>
-        <button class="side-tab" id="tab-back" data-side="back" role="tab" aria-selected="false">Back &middot; palm</button>
-      </div>
-      <div class="zoom">
-        <button id="zoomOut" aria-label="Zoom out">&minus;</button>
-        <span id="zoomPct">100%</span>
-        <button id="zoomIn" aria-label="Zoom in">+</button>
-        <button id="zoomFit" class="zoom-fit" aria-label="Fit whole mitten in view">Fit</button>
-      </div>
-    </div>
-    <div class="chart-body">
-      <div class="chart-scroll" id="chartScroll">
-        <canvas id="chart"></canvas>
-      </div>
-      <div class="row-tracker" aria-label="Current knitting row">
-        <span class="rt-label">Row</span>
-        <button id="rowUp" title="Next row (+)">+</button>
-        <span id="rowNum">&mdash;</span>
-        <button id="rowDown" title="Previous row (&minus;)">&minus;</button>
-      </div>
-    </div>
-    <div class="chart-foot">
-      <span id="counts"></span>
-      <span class="chart-hint">Drag to knit &middot; right-click erases &middot; F flips side &middot; +/&minus; steps the row &middot; autosaves</span>
-    </div>
-  </main>
 </div>
 
 <footer>Charted in the tradition of Selbu, Norway &mdash; read from the bottom up.</footer>
 
 <button id="goose" aria-label="Goose. Click to honk." title="Honk?">
   <span id="honk" class="honk" hidden>Honk!</span>
-  <svg id="gooseSvg" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"></svg>
+  <svg id="gooseSvg" viewBox="0 0 64 64" aria-hidden="true">
+    <!-- legs first so the body overlaps their tops -->
+    <path d="M31 46 L31 56 L37 56" fill="none" stroke="#E8862E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M41 44 L41 54 L47 54" fill="none" stroke="#E8862E" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M14 11.5 C9 11.5 5.5 13.5 4.5 15 C5.5 16.5 9 18.5 14 17.5 Z" fill="#E8862E"/>
+    <path d="M13 9.5
+             C15 6 23.5 6.5 24.5 11
+             C26 17.5 25.5 27 31 34
+             C38 30.5 48 27.5 56.5 24
+             C57.5 31 54.5 38.5 49 42.5
+             C43 50.5 30 52.5 24 46
+             C19.5 41 18.5 32 18 24
+             C17.5 19 15 16.5 13 14.5 Z"
+          fill="#FDFBF6" stroke="#26221E" stroke-width="1.7" stroke-linejoin="round"/>
+    <circle cx="17.6" cy="12.3" r="1.7" fill="#26221E"/>
+  </svg>
 </button>
 
 <script>
@@ -598,7 +616,9 @@
   // ---- drawing ----
   function fitCellSize() {
     var W = state.stitches, R = totalRows();
-    var availW = Math.min(document.body.clientWidth - 40, 920) - RULER - 44 - 52; /* 52: row tracker */
+    // side panels sit left and right of the chart above 1100px, stacked below it otherwise
+    var panelSpace = window.matchMedia("(min-width: 1101px)").matches ? 2 * (250 + 24) : 0;
+    var availW = Math.min(document.body.clientWidth - 40 - panelSpace, 920) - RULER - 44 - 52; /* 52: row tracker */
     var card = document.querySelector(".chart-card");
     var availH = window.innerHeight - card.offsetTop - 150 - RULER;
     if (availH < 160) availH = 160;
@@ -1255,43 +1275,6 @@
   });
 
   // ---- the goose ----
-  // pixel goose in chart style: # = ink, r = red (beak, feet), w = eye
-  var GOOSE = [
-    "................",
-    "..###...........",
-    ".#####..........",
-    ".##w##..........",
-    "rr####..........",
-    "..####..........",
-    "...###..........",
-    "...###.......##.",
-    "...###......###.",
-    "...##########...",
-    "..#############.",
-    "..############..",
-    "...##########...",
-    "....########....",
-    "......rr..rr....",
-    ".....rr...rr...."
-  ];
-  (function buildGoose() {
-    var svg = document.getElementById("gooseSvg");
-    var ns = "http://www.w3.org/2000/svg";
-    var fills = { "#": "#26221E", "r": "#9E3229", "w": "#F9F6EF" };
-    for (var y = 0; y < GOOSE.length; y++) {
-      for (var x = 0; x < GOOSE[y].length; x++) {
-        var ch = GOOSE[y][x];
-        if (ch === ".") continue;
-        var rect = document.createElementNS(ns, "rect");
-        rect.setAttribute("x", x);
-        rect.setAttribute("y", y);
-        rect.setAttribute("width", 1);
-        rect.setAttribute("height", 1);
-        rect.setAttribute("fill", fills[ch]);
-        svg.appendChild(rect);
-      }
-    }
-  })();
   var honkTimer = null;
   document.getElementById("goose").addEventListener("click", function () {
     var goose = this;

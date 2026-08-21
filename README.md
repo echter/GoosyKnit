@@ -21,7 +21,7 @@ the style of a vintage Norwegian pattern leaflet.
 - Optional mirror mode (off by default) paints both halves symmetrically.
 - Thumb opening marker on the palm side: customizable width, row, chart side
   (left/right), and inset from the edge; included in PNG and PDF exports.
-- A resident pixel goose in the bottom-right corner. It honks.
+- A resident goose in the bottom-right corner. It honks.
 - Right-click drag erases; undo/redo buttons plus Ctrl+Z / Ctrl+Y, per stroke.
 - The whole mitten fits the window by default; zoom in/out/fit controls.
 - Chart conventions: bold gridline every 5 stitches/rows, stitch numbers along
