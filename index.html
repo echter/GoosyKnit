@@ -328,6 +328,7 @@
   .knit-toggle:hover { background: var(--ink); color: var(--card); }
   .knit-toggle.selected { background: var(--red); border-color: var(--red); color: var(--wool-white); }
 
+  .row-focus[hidden] { display: none; } /* display:flex below would otherwise defeat the hidden attribute */
   .row-focus {
     display: flex;
     align-items: center;
@@ -1114,15 +1115,20 @@
     var rb = state.currentRow - 1;
     var inset = insetFor(rb);
     var rowW = W - 2 * inset;
+    var hasPrev = rb >= 1;
+    var pins = hasPrev ? insetFor(rb - 1) : inset; // the row below is as wide or wider (tip decreases)
+    var minIns = Math.min(inset, pins);
+    var dispW = W - 2 * minIns; // strip is sized to the wider of the two rows, columns stay aligned
     rfRow.textContent = "Row " + state.currentRow + " of " + R;
     rfOf.textContent = rowW + " sts per side" + (rb >= state.bodyRows ? " · tip: decrease 1 each side" : "");
     var sides = viewSides();
     var n = sides.length;
     var gap = 26, labelH = n > 1 ? 14 : 4, numH = 14;
     var stripAvail = document.body.clientWidth - 220; // room for the step buttons and padding
-    var cs = Math.max(12, Math.min(46, Math.floor((stripAvail - (n - 1) * gap) / (n * rowW))));
-    var cssW = n * rowW * cs + (n - 1) * gap + 2;
-    var cssH = labelH + cs + numH + 2;
+    var cs = Math.max(12, Math.min(46, Math.floor((stripAvail - (n - 1) * gap) / (n * dispW))));
+    var bandH = cs + (hasPrev ? cs : 0);
+    var cssW = n * dispW * cs + (n - 1) * gap + 2;
+    var cssH = labelH + bandH + numH + 2;
     var dpr = window.devicePixelRatio || 1;
     rowCanvas.width = cssW * dpr;
     rowCanvas.height = cssH * dpr;
@@ -1133,7 +1139,7 @@
 
     var tr = thumbRect();
     sides.forEach(function (sideKey, si) {
-      var ox = 1 + si * (rowW * cs + gap);
+      var ox = 1 + si * (dispW * cs + gap);
       var oy = labelH;
       if (n > 1) {
         rowCtx.fillStyle = "rgba(38,34,30,0.7)";
@@ -1143,33 +1149,50 @@
         rowCtx.fillText(sideKey === "front" ? "FRONT" : "PALM", ox, 10);
       }
       var grid = state.sides[sideKey];
+
+      // faded band below: the row just completed
+      if (hasPrev) {
+        var py = oy + cs;
+        rowCtx.globalAlpha = 0.3;
+        for (var pc = pins; pc < W - pins; pc++) {
+          rowCtx.fillStyle = grid[(rb - 1) + "," + pc] || WOOL_WHITE;
+          rowCtx.fillRect(ox + (pc - minIns) * cs, py, cs, cs);
+        }
+        rowCtx.fillStyle = "rgba(38,34,30,0.5)";
+        for (var pb = 0; pb <= W - 2 * pins; pb++) {
+          rowCtx.fillRect(ox + (pins - minIns + pb) * cs - 0.5, py, 1, cs);
+        }
+        rowCtx.fillRect(ox + (pins - minIns) * cs, py + cs - 0.5, (W - 2 * pins) * cs, 1);
+        rowCtx.globalAlpha = 1;
+      }
+
+      // the row on the needles
       for (var c = inset; c < W - inset; c++) {
         rowCtx.fillStyle = grid[rb + "," + c] || WOOL_WHITE;
-        rowCtx.fillRect(ox + (c - inset) * cs, oy, cs, cs);
+        rowCtx.fillRect(ox + (c - minIns) * cs, oy, cs, cs);
       }
       // vertical lines, heavier every 5 stitches counted from the right (chart convention)
       for (var b = 0; b <= rowW; b++) {
         rowCtx.fillStyle = (b === 0 || b === rowW || (rowW - b) % 5 === 0)
           ? "rgba(38,34,30,0.6)" : "rgba(38,34,30,0.2)";
-        rowCtx.fillRect(ox + b * cs - 0.5, oy, 1, cs);
+        rowCtx.fillRect(ox + (inset - minIns + b) * cs - 0.5, oy, 1, cs);
       }
-      rowCtx.fillStyle = "rgba(38,34,30,0.6)";
-      rowCtx.fillRect(ox, oy - 0.5, rowW * cs, 1);
-      rowCtx.fillRect(ox, oy + cs - 0.5, rowW * cs, 1);
-      // stitch counts below, every 5 from the right
+      // red frame marks the current row, same cue as in the chart
+      rowCtx.strokeStyle = "#9E3229";
+      rowCtx.lineWidth = 2;
+      rowCtx.strokeRect(ox + (inset - minIns) * cs + 1, oy + 1, rowW * cs - 2, cs - 2);
+      // stitch counts below, every 5 from the right of the current row
       rowCtx.fillStyle = "rgba(38,34,30,0.7)";
       rowCtx.font = "500 9px 'IBM Plex Mono', monospace";
       rowCtx.textAlign = "center";
       rowCtx.textBaseline = "top";
       for (var s = 5; s <= rowW; s += 5) {
-        rowCtx.fillText(String(s), ox + (rowW - s) * cs + cs / 2, oy + cs + 3);
+        rowCtx.fillText(String(s), ox + (W - inset - s - minIns) * cs + cs / 2, oy + bandH + 3);
       }
       // thumb opening, palm side, when it sits on this row
       if (sideKey === "back" && state.thumb.show && tr && tr.rb === rb) {
-        rowCtx.strokeStyle = "#9E3229";
-        rowCtx.lineWidth = 2;
         rowCtx.setLineDash([5, 3]);
-        rowCtx.strokeRect(ox + (tr.c0 - inset) * cs + 1, oy + 1, tr.w * cs - 2, cs - 2);
+        rowCtx.strokeRect(ox + (tr.c0 - minIns) * cs + 1, oy + 1, tr.w * cs - 2, cs - 2);
         rowCtx.setLineDash([]);
       }
     });
